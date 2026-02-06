@@ -31,6 +31,9 @@ A local-first web app for CSV exploration and visualization.
   - Quick stats panel on filtered rows
 - Plotly-powered 2D plot tab with selectable series and style
 - Plotly-powered 3D plot tab with axis, color, and size selectors
+- Plot workflow is additive:
+  - Data tab filters/sort define the base row set
+  - 2D/3D tabs can apply additional plot-only subfilters on top
 - Fully local runtime: no backend and no data upload
 
 ## Run locally

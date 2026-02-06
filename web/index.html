@@ -88,6 +88,16 @@
               <h3>Series</h3>
               <div id="yColumns2d" class="checklist"></div>
             </div>
+
+            <div class="control-block">
+              <h3>Row Subselect</h3>
+              <label for="subFilterColumn2d">Column (optional)</label>
+              <select id="subFilterColumn2d"></select>
+              <label for="subFilterQuery2d">Filter</label>
+              <input id="subFilterQuery2d" type="text" placeholder="contains / >10 / <=5 / 1..9" />
+              <button id="clearSubFilter2d" class="secondary-btn" type="button">Clear plot subfilter</button>
+              <div id="subFilterMeta2d" class="muted"></div>
+            </div>
           </div>
 
           <div class="canvas-card">
@@ -122,6 +132,16 @@
               </div>
 
               <button id="reset3dView" class="secondary-btn" type="button">Reset 3D view</button>
+            </div>
+
+            <div class="control-block note">
+              <h3>Row Subselect</h3>
+              <label for="subFilterColumn3d">Column (optional)</label>
+              <select id="subFilterColumn3d"></select>
+              <label for="subFilterQuery3d">Filter</label>
+              <input id="subFilterQuery3d" type="text" placeholder="contains / >10 / <=5 / 1..9" />
+              <button id="clearSubFilter3d" class="secondary-btn" type="button">Clear plot subfilter</button>
+              <div id="subFilterMeta3d" class="muted"></div>
             </div>
 
             <div class="control-block note">

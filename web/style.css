@@ -307,11 +307,11 @@ body {
 }
 
 .controls-2d {
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 280px 1fr 340px;
 }
 
 .controls-3d {
-  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
 }
 
 .controls-data {
@@ -345,11 +345,13 @@ label {
 }
 
 select,
-input[type="range"] {
+input[type="range"],
+input[type="text"] {
   width: 100%;
 }
 
 select,
+input[type="text"],
 .secondary-btn {
   appearance: none;
   border: 1px solid #cbd5e1;

@@ -49,3 +49,22 @@ test("applies column filters, sort, and updates quick stats", async ({ page }) =
   await expect(page.locator("#quickStats")).toContainText("Mean");
   await expect(page.locator("#quickStats")).toContainText("Rows in view");
 });
+
+test("builds plots from Data filters and allows plot-level subselect", async ({ page }) => {
+  await loadFixture(page);
+
+  await page.fill("#filter-col-1", ">20.8");
+  await expect(page.locator("#tableMeta")).toContainText("2 of 6 rows");
+
+  await page.click("button[data-tab='plot2d']");
+  await expect(page.locator("#legend2d")).toContainText("Using 2 of 2 filtered rows");
+
+  await page.selectOption("#subFilterColumn2d", "2");
+  await page.fill("#subFilterQuery2d", ">=101.7");
+  await expect(page.locator("#legend2d")).toContainText("Using 1 of 2 filtered rows");
+
+  await page.click("button[data-tab='plot3d']");
+  await page.selectOption("#subFilterColumn3d", "2");
+  await page.fill("#subFilterQuery3d", ">=101.7");
+  await expect(page.locator("#meta3d")).toContainText("Using 1 of 2 filtered rows");
+});
