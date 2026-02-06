@@ -34,15 +34,13 @@ git push origin v0.2.0
 ## Expected GitHub Outputs
 
 - A workflow run for each target platform:
-  - linux-x86_64
   - windows-x86_64
   - macos-x86_64
   - macos-arm64
 - A GitHub Release for the tag with attached binaries:
-  - `csv-dashboard-linux-x86_64.tar.gz`
-  - `csv-dashboard-windows-x86_64.zip`
-  - `csv-dashboard-macos-x86_64.tar.gz`
-  - `csv-dashboard-macos-arm64.tar.gz`
+  - `csv-dashboard-windows-x86_64.exe`
+  - `csv-dashboard-macos-x86_64.app.zip`
+  - `csv-dashboard-macos-arm64.app.zip`
 
 ## If You Need to Re-run
 
@@ -55,4 +53,3 @@ git push origin :refs/tags/v0.2.0
 git tag v0.2.0
 git push origin v0.2.0
 ```
-

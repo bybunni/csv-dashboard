@@ -25,7 +25,7 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": "app"
+    "active": false,
+    "targets": "all"
   }
 }
