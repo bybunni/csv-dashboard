@@ -7,6 +7,7 @@ import {
   toNumber,
   valueToNullableNumber,
 } from "./lib/csv-core.js";
+import { buildViewRows as buildViewRowsForOps, computeQuickStats } from "./lib/data-ops.js";
 
 const MAX_TABLE_ROWS = 2000;
 const DEFAULT_3D_CAMERA = {
@@ -570,135 +571,12 @@ function renderViews() {
 }
 
 function buildViewRows() {
-  if (state.rows.length === 0) {
-    return [];
-  }
-
-  let rows = state.rows
-    .map((values, index) => ({
-      values,
-      sourceIndex: index + 1,
-    }))
-    .filter((entry) => rowMatchesFilters(entry.values));
-
-  if (state.dataOps.sortColumn !== null && state.dataOps.sortDirection !== "none") {
-    const columnIndex = state.dataOps.sortColumn;
-    const type = state.columns[columnIndex]?.type || "string";
-    const direction = state.dataOps.sortDirection === "desc" ? -1 : 1;
-
-    rows = rows.slice().sort((left, right) => {
-      const cmp = compareCellValues(left.values[columnIndex], right.values[columnIndex], type);
-      if (cmp !== 0) {
-        return cmp * direction;
-      }
-      return left.sourceIndex - right.sourceIndex;
-    });
-  }
-
-  return rows;
-}
-
-function rowMatchesFilters(rowValues) {
-  for (let index = 0; index < state.columns.length; index += 1) {
-    const query = (state.dataOps.filters[index] || "").trim();
-    if (!query) {
-      continue;
-    }
-
-    const type = state.columns[index].type;
-    const cell = rowValues[index] || "";
-
-    if (!cellMatchesFilter(cell, query, type)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function cellMatchesFilter(cell, query, type) {
-  const text = String(cell);
-  const normalizedText = text.toLowerCase();
-  const normalizedQuery = query.toLowerCase();
-
-  if (type === "number") {
-    const numericFilter = parseNumericFilter(query);
-    const numericValue = toNumber(text);
-
-    if (numericFilter && numericValue !== null) {
-      return applyNumericFilter(numericValue, numericFilter);
-    }
-  }
-
-  return normalizedText.includes(normalizedQuery);
-}
-
-function parseNumericFilter(query) {
-  const raw = query.trim();
-  if (!raw) {
-    return null;
-  }
-
-  if (raw.includes("..")) {
-    const parts = raw.split("..").map((part) => part.trim());
-    if (parts.length !== 2) {
-      return null;
-    }
-    const min = Number(parts[0]);
-    const max = Number(parts[1]);
-    if (Number.isFinite(min) && Number.isFinite(max)) {
-      return { kind: "range", min: Math.min(min, max), max: Math.max(min, max) };
-    }
-  }
-
-  const match = raw.match(/^(<=|>=|!=|=|<|>)(.+)$/);
-  if (match) {
-    const value = Number(match[2].trim());
-    if (Number.isFinite(value)) {
-      return { kind: "cmp", op: match[1], value };
-    }
-    return null;
-  }
-
-  const direct = Number(raw);
-  if (Number.isFinite(direct)) {
-    return { kind: "cmp", op: "=", value: direct };
-  }
-
-  return null;
-}
-
-function applyNumericFilter(value, filter) {
-  if (filter.kind === "range") {
-    return value >= filter.min && value <= filter.max;
-  }
-
-  if (filter.op === "<") return value < filter.value;
-  if (filter.op === "<=") return value <= filter.value;
-  if (filter.op === ">") return value > filter.value;
-  if (filter.op === ">=") return value >= filter.value;
-  if (filter.op === "!=") return value !== filter.value;
-  return value === filter.value;
-}
-
-function compareCellValues(left, right, type) {
-  if (type === "number") {
-    const leftNumeric = toNumber(left);
-    const rightNumeric = toNumber(right);
-
-    if (leftNumeric !== null && rightNumeric !== null) {
-      return leftNumeric - rightNumeric;
-    }
-    if (leftNumeric !== null) {
-      return -1;
-    }
-    if (rightNumeric !== null) {
-      return 1;
-    }
-  }
-
-  return String(left).localeCompare(String(right), undefined, {
-    numeric: true,
-    sensitivity: "base",
+  return buildViewRowsForOps({
+    rows: state.rows,
+    columns: state.columns,
+    filters: state.dataOps.filters,
+    sortColumn: state.dataOps.sortColumn,
+    sortDirection: state.dataOps.sortDirection,
   });
 }
 
@@ -774,62 +652,36 @@ function renderQuickStats(viewRows) {
 
   const colIndex = state.dataOps.statsColumn;
   const column = state.columns[colIndex];
-  const values = viewRows.map((entry) => entry.values[colIndex]);
+  const stats = computeQuickStats(viewRows, colIndex, column.type);
 
-  if (column.type === "number") {
-    const numericValues = values.map((value) => toNumber(value)).filter((value) => value !== null);
-    const missing = values.length - numericValues.length;
+  if (stats.kind === "number-empty") {
+    els.quickStats.classList.add("muted");
+    els.quickStats.innerHTML = "No numeric values in the current filtered view.";
+    return;
+  }
 
-    if (numericValues.length === 0) {
-      els.quickStats.classList.add("muted");
-      els.quickStats.innerHTML = "No numeric values in the current filtered view.";
-      return;
-    }
-
-    const sorted = numericValues.slice().sort((a, b) => a - b);
-    const sum = sorted.reduce((acc, value) => acc + value, 0);
-    const mean = sum / sorted.length;
-    const variance = sorted.reduce((acc, value) => acc + (value - mean) ** 2, 0) / sorted.length;
-    const median =
-      sorted.length % 2 === 1
-        ? sorted[(sorted.length - 1) / 2]
-        : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
-
+  if (stats.kind === "number") {
     els.quickStats.classList.remove("muted");
     els.quickStats.innerHTML = [
-      statItem("Rows in view", formatInt(values.length)),
-      statItem("Non-empty", formatInt(sorted.length)),
-      statItem("Missing", formatInt(missing)),
-      statItem("Min", formatNumber(sorted[0])),
-      statItem("Max", formatNumber(sorted[sorted.length - 1])),
-      statItem("Mean", formatNumber(mean)),
-      statItem("Median", formatNumber(median)),
-      statItem("Std dev", formatNumber(Math.sqrt(variance))),
+      statItem("Rows in view", formatInt(stats.rowsInView)),
+      statItem("Non-empty", formatInt(stats.nonEmpty)),
+      statItem("Missing", formatInt(stats.missing)),
+      statItem("Min", formatNumber(stats.min)),
+      statItem("Max", formatNumber(stats.max)),
+      statItem("Mean", formatNumber(stats.mean)),
+      statItem("Median", formatNumber(stats.median)),
+      statItem("Std dev", formatNumber(stats.stdDev)),
     ].join("");
     return;
   }
 
-  const normalized = values.map((value) => String(value || "").trim());
-  const present = normalized.filter((value) => value !== "");
-  const missing = normalized.length - present.length;
-  const frequencies = new Map();
-
-  present.forEach((value) => {
-    frequencies.set(value, (frequencies.get(value) || 0) + 1);
-  });
-
-  const topValues = [...frequencies.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([value, count]) => `${value} (${count})`)
-    .join(", ");
-
+  const topValues = stats.topValues.map((entry) => `${entry.value} (${entry.count})`).join(", ");
   els.quickStats.classList.remove("muted");
   els.quickStats.innerHTML = [
-    statItem("Rows in view", formatInt(values.length)),
-    statItem("Non-empty", formatInt(present.length)),
-    statItem("Missing", formatInt(missing)),
-    statItem("Unique", formatInt(frequencies.size)),
+    statItem("Rows in view", formatInt(stats.rowsInView)),
+    statItem("Non-empty", formatInt(stats.nonEmpty)),
+    statItem("Missing", formatInt(stats.missing)),
+    statItem("Unique", formatInt(stats.unique)),
     statItem("Top values", escapeHtml(topValues || "none")),
   ].join("");
 }

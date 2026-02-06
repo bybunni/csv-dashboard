@@ -66,6 +66,12 @@ Run only unit tests:
 npm run test:unit
 ```
 
+Run unit tests with enforced coverage thresholds:
+
+```bash
+npm run test:coverage
+```
+
 Run only e2e tests:
 
 ```bash
