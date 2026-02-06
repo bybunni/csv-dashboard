@@ -66,6 +66,39 @@ describe("row normalization", () => {
   it("dedupeHeaders appends counts to repeated names", () => {
     expect(dedupeHeaders(["a", "a", "a"])).toEqual(["a", "a (2)", "a (3)"]);
   });
+
+  it("composes two-row headers with merged-style blanks", () => {
+    const rows = [
+      ["Engine", "", "Body", "", ""],
+      ["rpm", "temp", "x", "y", "z"],
+      ["900", "72", "1", "2", "3"],
+      ["950", "74", "1.2", "2.2", "3.2"],
+    ];
+
+    const { headers, dataRows } = normalizeRows(rows);
+
+    expect(headers).toEqual(["Engine / rpm", "Engine / temp", "Body / x", "Body / y", "Body / z"]);
+    expect(dataRows).toEqual([
+      ["900", "72", "1", "2", "3"],
+      ["950", "74", "1.2", "2.2", "3.2"],
+    ]);
+  });
+
+  it("keeps single header mode for normal one-row headers", () => {
+    const rows = [
+      ["name", "city"],
+      ["alice", "boston"],
+      ["bob", "denver"],
+    ];
+
+    const { headers, dataRows } = normalizeRows(rows);
+
+    expect(headers).toEqual(["name", "city"]);
+    expect(dataRows).toEqual([
+      ["alice", "boston"],
+      ["bob", "denver"],
+    ]);
+  });
 });
 
 describe("type inference", () => {

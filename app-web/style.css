@@ -30,7 +30,7 @@ body {
 }
 
 .app-shell {
-  width: min(1480px, calc(100vw - 32px));
+  width: calc(100vw - 32px);
   margin: 16px auto;
   display: grid;
   gap: 12px;

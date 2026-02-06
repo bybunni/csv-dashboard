@@ -118,15 +118,19 @@ export function variance(values) {
 }
 
 export function normalizeRows(rows) {
-  const baseHeader = rows[0] || [];
-  let headers = dedupeHeaders(baseHeader.map((value, index) => (value.trim() ? value.trim() : `Column ${index + 1}`)));
-
-  let maxLen = headers.length;
-  rows.slice(1).forEach((row) => {
+  let maxLen = 0;
+  rows.forEach((row) => {
     if (row.length > maxLen) {
       maxLen = row.length;
     }
   });
+
+  if (maxLen === 0) {
+    return { headers: [], dataRows: [] };
+  }
+
+  const headerRowCount = shouldUseTwoHeaderRows(rows, maxLen) ? 2 : 1;
+  let headers = dedupeHeaders(composeHeaders(rows.slice(0, headerRowCount), maxLen));
 
   if (maxLen > headers.length) {
     const grown = [...headers];
@@ -136,7 +140,7 @@ export function normalizeRows(rows) {
     headers = dedupeHeaders(grown);
   }
 
-  const dataRows = rows.slice(1).map((row) => {
+  const dataRows = rows.slice(headerRowCount).map((row) => {
     const normalized = row.slice(0, headers.length);
     while (normalized.length < headers.length) {
       normalized.push("");
@@ -145,6 +149,132 @@ export function normalizeRows(rows) {
   });
 
   return { headers, dataRows };
+}
+
+function shouldUseTwoHeaderRows(rows, columnCount) {
+  if (rows.length < 2) {
+    return false;
+  }
+
+  const first = padRow(rows[0], columnCount);
+  const second = padRow(rows[1], columnCount);
+  const firstProfile = profileRow(first);
+  const secondProfile = profileRow(second);
+
+  if (firstProfile.nonEmpty === 0 || secondProfile.nonEmpty === 0) {
+    return false;
+  }
+
+  if (firstProfile.numericRatio > 0.2 || secondProfile.numericRatio > 0.2) {
+    return false;
+  }
+
+  let complements = 0;
+  for (let index = 0; index < columnCount; index += 1) {
+    if (!first[index].trim() && second[index].trim()) {
+      complements += 1;
+    }
+  }
+
+  const firstHasDuplicates = hasNonEmptyDuplicates(first);
+  const secondAddsCoverage = secondProfile.nonEmpty > firstProfile.nonEmpty;
+
+  if (complements >= 2) {
+    return true;
+  }
+
+  if (firstHasDuplicates && secondProfile.nonEmpty >= 2) {
+    return true;
+  }
+
+  return secondAddsCoverage && firstProfile.nonEmpty <= Math.ceil(columnCount * 0.75);
+}
+
+function composeHeaders(headerRows, columnCount) {
+  const useFillForward = headerRows.length > 1;
+  const normalizedRows = headerRows.map((row) => {
+    const padded = padRow(row, columnCount);
+    return useFillForward ? fillForward(padded) : padded.map((cell) => String(cell || "").trim());
+  });
+  const headers = [];
+
+  for (let index = 0; index < columnCount; index += 1) {
+    const parts = [];
+
+    normalizedRows.forEach((row) => {
+      const value = row[index].trim();
+      if (!value) {
+        return;
+      }
+      if (parts[parts.length - 1] === value) {
+        return;
+      }
+      parts.push(value);
+    });
+
+    headers.push(parts.length ? parts.join(" / ") : `Column ${index + 1}`);
+  }
+
+  return headers;
+}
+
+function padRow(row, length) {
+  const normalized = (row || []).slice(0, length);
+  while (normalized.length < length) {
+    normalized.push("");
+  }
+  return normalized;
+}
+
+function fillForward(row) {
+  const expanded = [...row];
+  let last = "";
+  for (let index = 0; index < expanded.length; index += 1) {
+    const trimmed = expanded[index].trim();
+    if (trimmed) {
+      last = trimmed;
+      expanded[index] = trimmed;
+      continue;
+    }
+    expanded[index] = last;
+  }
+  return expanded;
+}
+
+function profileRow(row) {
+  let nonEmpty = 0;
+  let numeric = 0;
+
+  row.forEach((value) => {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) {
+      return;
+    }
+    nonEmpty += 1;
+    if (toNumber(trimmed) !== null) {
+      numeric += 1;
+    }
+  });
+
+  return {
+    nonEmpty,
+    numericRatio: nonEmpty > 0 ? numeric / nonEmpty : 0,
+  };
+}
+
+function hasNonEmptyDuplicates(row) {
+  const seen = new Set();
+  for (const value of row) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (seen.has(trimmed)) {
+      return true;
+    }
+    seen.add(trimmed);
+  }
+  return false;
 }
 
 export function dedupeHeaders(headers) {
