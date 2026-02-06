@@ -603,7 +603,9 @@ function renderTable(viewRows) {
               : ""
           : "";
 
-      return `<th title="${escapeHtml(header)}"><div class="header-cell"><span>${escapeHtml(header)} ${sortIndicator}</span><span class="type-chip ${column.type}">${column.type}</span></div></th>`;
+      return `<th title="${escapeHtml(header)}"><div class="header-cell"><div class="header-main"><span class="header-name">${escapeHtml(
+        header
+      )}</span><span class="sort-indicator">${sortIndicator}</span></div><span class="header-type ${column.type}" title="${column.type}">${column.type}</span></div></th>`;
     })
     .join("");
 
