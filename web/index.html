@@ -21,7 +21,10 @@
           <p class="subtle">Data is parsed in-browser only. No backend, no upload.</p>
           <input id="fileInput" type="file" accept=".csv,text/csv" hidden />
         </div>
-        <div id="statusBar" class="status muted">No file loaded.</div>
+        <div class="status-row">
+          <div id="statusBar" class="status muted">No file loaded.</div>
+          <button id="exportBtn" class="secondary-btn" type="button" disabled>Export View CSV</button>
+        </div>
       </section>
 
       <nav class="tabs" aria-label="View tabs">

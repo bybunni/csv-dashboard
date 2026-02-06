@@ -36,6 +36,9 @@ A local-first web app for CSV exploration and visualization.
 - Plot workflow is additive:
   - Data tab filters/sort define the base row set
   - 2D/3D tabs can apply additional plot-only subfilters on top
+- Export button (top-right) writes the current active view to CSV
+  - Data tab: filtered + sorted rows
+  - 2D/3D tabs: Data-filtered rows plus plot subfilter
 - Fully local runtime: no backend and no data upload
 
 ## Run locally

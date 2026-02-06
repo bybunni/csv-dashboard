@@ -67,6 +67,7 @@ const els = {
   browseBtn: document.getElementById("browseBtn"),
   fileInput: document.getElementById("fileInput"),
   statusBar: document.getElementById("statusBar"),
+  exportBtn: document.getElementById("exportBtn"),
   tabs: document.querySelectorAll(".tab"),
   panels: {
     data: document.getElementById("panel-data"),
@@ -113,6 +114,7 @@ init();
 function init() {
   bindTabControls();
   bindDropZone();
+  bindExportControl();
   bindDataControls();
   bind2dControls();
   bind3dControls();
@@ -129,6 +131,21 @@ function init() {
     if (state.tab === "plot3d") {
       window.Plotly.Plots.resize(els.plot3d);
     }
+  });
+}
+
+function bindExportControl() {
+  els.exportBtn.addEventListener("click", () => {
+    const viewRows = getExportRowsForActiveTab();
+    if (viewRows.length === 0 || state.headers.length === 0) {
+      setStatus("No rows available to export for the current view.", "warn");
+      return;
+    }
+
+    const csv = serializeRowsToCsv(state.headers, viewRows);
+    const fileName = getExportFileName();
+    downloadCsv(fileName, csv);
+    setStatus(`Exported ${viewRows.length.toLocaleString()} row(s) to ${fileName}.`, "ok");
   });
 }
 
@@ -155,6 +172,7 @@ function setTab(tab) {
   if (tab === "plot3d") {
     draw3D(viewRows);
   }
+  updateExportButtonState(viewRows);
 }
 
 function bindDropZone() {
@@ -654,10 +672,16 @@ function populateColumnSelectWithNone(selectEl, columns, selectedValue) {
 
 function renderViews() {
   const viewRows = buildViewRows();
+  updateExportButtonState(viewRows);
   renderTable(viewRows);
   renderQuickStats(viewRows);
   draw2D(viewRows);
   draw3D(viewRows);
+}
+
+function updateExportButtonState(viewRows) {
+  const exportRows = getExportRowsForActiveTab(viewRows);
+  els.exportBtn.disabled = state.headers.length === 0 || exportRows.length === 0;
 }
 
 function buildViewRows() {
@@ -783,6 +807,10 @@ function statItem(label, value) {
 }
 
 function draw2D(viewRows) {
+  if (state.tab === "plot2d") {
+    updateExportButtonState(viewRows);
+  }
+
   if (!window.Plotly) {
     setPlotUnavailable(els.plot2d, "Plotly asset not loaded. Run npm install to provision local plotly.min.js.");
     els.legend2d.textContent = "Plotly unavailable.";
@@ -908,6 +936,10 @@ function draw2D(viewRows) {
 }
 
 function draw3D(viewRows) {
+  if (state.tab === "plot3d") {
+    updateExportButtonState(viewRows);
+  }
+
   if (!window.Plotly) {
     setPlotUnavailable(els.plot3d, "Plotly asset not loaded. Run npm install to provision local plotly.min.js.");
     els.meta3d.textContent = "Plotly unavailable.";
@@ -1111,6 +1143,58 @@ function renderEmptyPlot(target, message, is3d = false) {
 
 function setPlotUnavailable(target, message) {
   target.innerHTML = `<div class="plot-message">${escapeHtml(message)}</div>`;
+}
+
+function getExportRowsForActiveTab(precomputedBaseRows) {
+  const baseRows = precomputedBaseRows || buildViewRows();
+
+  if (state.tab === "plot2d") {
+    return subselectPlotRows(baseRows, state.plot2d.subFilterColumn, state.plot2d.subFilterQuery);
+  }
+  if (state.tab === "plot3d") {
+    return subselectPlotRows(baseRows, state.plot3d.subFilterColumn, state.plot3d.subFilterQuery);
+  }
+  return baseRows;
+}
+
+function serializeRowsToCsv(headers, rowEntries) {
+  const lines = [];
+  lines.push(headers.map((value) => csvEscape(value)).join(","));
+  rowEntries.forEach((entry) => {
+    lines.push(entry.values.map((value) => csvEscape(value)).join(","));
+  });
+  return `${lines.join("\n")}\n`;
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  if (!/[",\n\r]/.test(text)) {
+    return text;
+  }
+  return `"${text.replace(/"/g, "\"\"")}"`;
+}
+
+function getExportFileName() {
+  const base = (state.fileName || "export")
+    .replace(/\.csv$/i, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  const scope = state.tab === "plot2d" ? "plot2d" : state.tab === "plot3d" ? "plot3d" : "data";
+  return `${base || "export"}_${scope}_view.csv`;
+}
+
+function downloadCsv(fileName, content) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
 }
 
 function subselectPlotRows(baseRows, subFilterColumn, subFilterQuery) {

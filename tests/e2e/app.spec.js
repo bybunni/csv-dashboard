@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 
 const fixturePath = path.resolve(process.cwd(), "tests/fixtures/sensor.csv");
@@ -82,4 +83,28 @@ test("supports comma-compound filters in Data and plot subfilters", async ({ pag
   await page.selectOption("#subFilterColumn2d", "2");
   await page.fill("#subFilterQuery2d", ">101.2,<101.6");
   await expect(page.locator("#legend2d")).toContainText("Using 1 of 2 filtered rows");
+});
+
+test("exports the current filtered and sorted view to csv", async ({ page }) => {
+  await loadFixture(page);
+
+  await page.fill("#filter-col-1", ">20.8");
+  await page.selectOption("#sortColumnSelect", "2");
+  await page.selectOption("#sortDirectionSelect", "desc");
+  await expect(page.locator("#tableMeta")).toContainText("2 of 6 rows");
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.click("#exportBtn");
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe("sensor_data_view.csv");
+  const filePath = await download.path();
+  expect(filePath).toBeTruthy();
+
+  const csv = await fs.readFile(filePath, "utf8");
+  const lines = csv.trim().split(/\r?\n/);
+
+  expect(lines[0]).toBe("time,temp_c,pressure_kpa,humidity_pct,vibration");
+  expect(lines[1]).toBe("5,20.9,101.7,44,0.053");
+  expect(lines[2]).toBe("4,21.0,101.6,45,0.050");
 });
