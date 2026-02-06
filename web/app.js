@@ -517,7 +517,7 @@ function renderFilterControls() {
 
   const html = state.columns
     .map((column) => {
-      const placeholder = column.type === "number" ? "contains / >10 / <=5 / 1..9" : "contains text";
+      const placeholder = column.type === "number" ? "comma list: 1,2 or >1,<3" : "comma list: b1,b2";
       const value = state.dataOps.filters[column.index] || "";
 
       return `

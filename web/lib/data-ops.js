@@ -72,18 +72,34 @@ export function rowMatchesFilters(rowValues, columns, filters) {
 export function cellMatchesFilter(cell, query, type) {
   const text = String(cell);
   const normalizedText = text.toLowerCase();
-  const normalizedQuery = query.toLowerCase();
+  const tokens = splitFilterTokens(query);
+
+  if (tokens.length === 0) {
+    return true;
+  }
 
   if (type === "number") {
-    const numericFilter = parseNumericFilter(query);
     const numericValue = toNumber(text);
+    const parsed = tokens.map((token) => parseNumericFilter(token));
+    const allNumericFilters = parsed.every((filter) => filter !== null);
 
-    if (numericFilter && numericValue !== null) {
-      return applyNumericFilter(numericValue, numericFilter);
+    if (allNumericFilters) {
+      if (numericValue === null) {
+        return false;
+      }
+
+      const filters = parsed;
+      const allEquality = filters.every((filter) => filter.kind === "cmp" && filter.op === "=");
+
+      if (allEquality) {
+        return filters.some((filter) => applyNumericFilter(numericValue, filter));
+      }
+
+      return filters.every((filter) => applyNumericFilter(numericValue, filter));
     }
   }
 
-  return normalizedText.includes(normalizedQuery);
+  return tokens.some((token) => normalizedText.includes(token.toLowerCase()));
 }
 
 export function parseNumericFilter(query) {
@@ -122,6 +138,13 @@ export function parseNumericFilter(query) {
   }
 
   return null;
+}
+
+export function splitFilterTokens(query) {
+  return String(query)
+    .split(",")
+    .map((token) => token.trim())
+    .filter((token) => token !== "");
 }
 
 export function applyNumericFilter(value, filter) {

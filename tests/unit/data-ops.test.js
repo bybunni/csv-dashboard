@@ -6,6 +6,7 @@ import {
   compareCellValues,
   computeQuickStats,
   parseNumericFilter,
+  splitFilterTokens,
 } from "../../web/lib/data-ops.js";
 
 const columns = [
@@ -50,9 +51,24 @@ describe("cell matching", () => {
     expect(cellMatchesFilter("Alice", "zzz", "string")).toBe(false);
   });
 
+  it("supports comma-separated OR matching for strings", () => {
+    expect(cellMatchesFilter("b2", "b1,b2", "string")).toBe(true);
+    expect(cellMatchesFilter("b3", "b1,b2", "string")).toBe(false);
+  });
+
   it("handles numeric expressions for numeric cells", () => {
     expect(cellMatchesFilter("25", ">20", "number")).toBe(true);
     expect(cellMatchesFilter("25", "<=20", "number")).toBe(false);
+  });
+
+  it("supports compound numeric filters separated by commas", () => {
+    expect(cellMatchesFilter("2", ">1,<3", "number")).toBe(true);
+    expect(cellMatchesFilter("4", ">1,<3", "number")).toBe(false);
+  });
+
+  it("supports comma-separated numeric equality as OR", () => {
+    expect(cellMatchesFilter("2", "1,2", "number")).toBe(true);
+    expect(cellMatchesFilter("3", "1,2", "number")).toBe(false);
   });
 });
 
@@ -67,6 +83,18 @@ describe("row building", () => {
     });
 
     expect(view.map((entry) => entry.sourceIndex)).toEqual([1, 3]);
+  });
+
+  it("applies comma-separated numeric compound filters in row building", () => {
+    const view = buildViewRows({
+      rows,
+      columns,
+      filters: { 0: "", 1: ">10,<30", 2: "" },
+      sortColumn: null,
+      sortDirection: "none",
+    });
+
+    expect(view.map((entry) => entry.values[1])).toEqual(["25"]);
   });
 
   it("sorts numeric values and keeps stable fallback order", () => {
@@ -125,5 +153,11 @@ describe("quick stats", () => {
     expect(stats.missing).toBe(1);
     expect(stats.unique).toBe(2);
     expect(stats.topValues[0]).toEqual({ value: "alpha", count: 2 });
+  });
+});
+
+describe("token split", () => {
+  it("splits comma lists and removes empty tokens", () => {
+    expect(splitFilterTokens("a, b, ,c")).toEqual(["a", "b", "c"]);
   });
 });

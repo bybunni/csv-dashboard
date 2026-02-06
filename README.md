@@ -26,7 +26,9 @@ A local-first web app for CSV exploration and visualization.
 - Drag/drop CSV ingest (or file picker)
 - Spreadsheet-style data view with inferred column types
 - Grid data operations
-  - Per-column filters (text contains and numeric operators like `>`, `>=`, `..`)
+  - Per-column filters with comma-separated compound rules
+    - Strings: `b1,b2` means `b1 OR b2`
+    - Numerics: `>1,<3` means `>1 AND <3`
   - Column sort (ascending/descending)
   - Quick stats panel on filtered rows
 - Plotly-powered 2D plot tab with selectable series and style

@@ -68,3 +68,18 @@ test("builds plots from Data filters and allows plot-level subselect", async ({ 
   await page.fill("#subFilterQuery3d", ">=101.7");
   await expect(page.locator("#meta3d")).toContainText("Using 1 of 2 filtered rows");
 });
+
+test("supports comma-compound filters in Data and plot subfilters", async ({ page }) => {
+  await loadFixture(page);
+
+  await page.fill("#filter-col-0", "1,3");
+  await expect(page.locator("#tableMeta")).toContainText("2 of 6 rows");
+
+  await page.fill("#filter-col-0", ">1,<4");
+  await expect(page.locator("#tableMeta")).toContainText("2 of 6 rows");
+
+  await page.click("button[data-tab='plot2d']");
+  await page.selectOption("#subFilterColumn2d", "2");
+  await page.fill("#subFilterQuery2d", ">101.2,<101.6");
+  await expect(page.locator("#legend2d")).toContainText("Using 1 of 2 filtered rows");
+});
