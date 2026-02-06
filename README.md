@@ -15,6 +15,8 @@ A local-first CSV exploration app with two runtime modes:
     lib/
     style.css
     vendor/
+  configs/
+    examples/
   src-tauri/
     src/main.rs
     capabilities/default.json
@@ -47,6 +49,10 @@ A local-first CSV exploration app with two runtime modes:
 - Export button writes the current active view to CSV
   - Data tab: filtered + sorted rows
   - 2D/3D tabs: data-filtered rows plus plot subfilter
+- YAML preset workflow for reuse across CSVs
+  - Save current filter/sort/plot settings as a human-readable `.yaml` preset
+  - Load presets from a user-selected directory using the `Load presets` button
+  - Presets map settings by column name (not index) for cross-file reuse
 - Fully local runtime: no backend and no data upload
 
 ## Browser mode
@@ -59,6 +65,13 @@ npm run serve
 ```
 
 Open [http://localhost:8080](http://localhost:8080).
+
+Preset workflow:
+
+- Click `Load presets` and choose a directory containing `.yaml` / `.yml` files
+- Select a preset from the dropdown and click `Apply preset`
+- `Save preset YAML` downloads your current settings as a reusable file
+- Example presets live under `configs/examples/` in this repo
 
 ## Desktop mode (Tauri)
 

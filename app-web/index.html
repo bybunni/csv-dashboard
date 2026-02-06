@@ -25,6 +25,28 @@
           <div id="statusBar" class="status muted">No file loaded.</div>
           <button id="exportBtn" class="secondary-btn" type="button" disabled>Export View CSV</button>
         </div>
+        <div class="preset-row">
+          <label class="preset-field" for="configPresetSelect">
+            <span>Config preset (YAML)</span>
+            <select id="configPresetSelect"></select>
+          </label>
+          <button id="applyPresetBtn" class="secondary-btn" type="button">Apply preset</button>
+          <button id="loadPresetsBtn" class="secondary-btn" type="button">Load presets</button>
+          <input
+            id="presetDirectoryInput"
+            type="file"
+            accept=".yaml,.yml,text/yaml,application/x-yaml"
+            webkitdirectory
+            directory
+            multiple
+            hidden
+          />
+          <input id="savePresetName" type="text" placeholder="preset file name" />
+          <button id="savePresetBtn" class="secondary-btn" type="button">Save preset YAML</button>
+        </div>
+        <div id="presetMeta" class="subtle">
+          Click <strong>Load presets</strong> to choose a directory of YAML files. Save downloads a YAML preset.
+        </div>
       </section>
 
       <nav class="tabs" aria-label="View tabs">

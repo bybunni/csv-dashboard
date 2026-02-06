@@ -8,8 +8,10 @@ import {
   valueToNullableNumber,
 } from "./lib/csv-core.js";
 import { buildViewRows as buildViewRowsForOps, cellMatchesFilter, computeQuickStats } from "./lib/data-ops.js";
+import { parseYamlDocument, stringifyYamlDocument } from "./lib/preset-config.js";
 
 const MAX_TABLE_ROWS = 2000;
+const YAML_EXTENSION_RE = /\.ya?ml$/i;
 const DEFAULT_3D_CAMERA = {
   eye: { x: 1.65, y: 1.45, z: 1.2 },
 };
@@ -60,6 +62,12 @@ const state = {
     camera: { ...DEFAULT_3D_CAMERA },
     relayoutBound: false,
   },
+  presets: {
+    entries: [],
+    selectedId: "",
+    sourceDirectory: "",
+    loading: false,
+  },
 };
 
 const els = {
@@ -68,6 +76,13 @@ const els = {
   fileInput: document.getElementById("fileInput"),
   statusBar: document.getElementById("statusBar"),
   exportBtn: document.getElementById("exportBtn"),
+  configPresetSelect: document.getElementById("configPresetSelect"),
+  applyPresetBtn: document.getElementById("applyPresetBtn"),
+  loadPresetsBtn: document.getElementById("loadPresetsBtn"),
+  presetDirectoryInput: document.getElementById("presetDirectoryInput"),
+  savePresetName: document.getElementById("savePresetName"),
+  savePresetBtn: document.getElementById("savePresetBtn"),
+  presetMeta: document.getElementById("presetMeta"),
   tabs: document.querySelectorAll(".tab"),
   panels: {
     data: document.getElementById("panel-data"),
@@ -115,6 +130,7 @@ function init() {
   bindTabControls();
   bindDropZone();
   bindExportControl();
+  bindPresetControls();
   bindDataControls();
   bind2dControls();
   bind3dControls();
@@ -146,6 +162,30 @@ function bindExportControl() {
     const fileName = getExportFileName();
     downloadCsv(fileName, csv);
     setStatus(`Exported ${viewRows.length.toLocaleString()} row(s) to ${fileName}.`, "ok");
+  });
+}
+
+function bindPresetControls() {
+  els.configPresetSelect.addEventListener("change", () => {
+    state.presets.selectedId = els.configPresetSelect.value;
+    renderPresetControls();
+  });
+
+  els.applyPresetBtn.addEventListener("click", () => {
+    void applySelectedPreset();
+  });
+
+  els.loadPresetsBtn.addEventListener("click", () => {
+    els.presetDirectoryInput.click();
+  });
+
+  els.presetDirectoryInput.addEventListener("change", async () => {
+    await loadPresetDirectory(els.presetDirectoryInput.files);
+    els.presetDirectoryInput.value = "";
+  });
+
+  els.savePresetBtn.addEventListener("click", () => {
+    saveCurrentPresetYaml();
   });
 }
 
@@ -377,6 +417,7 @@ async function loadCsvFile(file) {
     state.headers = headers;
     state.rows = dataRows;
     state.columns = inferColumnTypes(headers, dataRows);
+    els.savePresetName.value = sanitizeFileName(defaultPresetName());
 
     initializeDataOps();
     initializePlotSelections();
@@ -430,6 +471,426 @@ function clearLoadedData() {
   state.plot3d.subFilterColumn = null;
   state.plot3d.subFilterQuery = "";
   state.plot3d.camera = { ...DEFAULT_3D_CAMERA };
+
+  els.savePresetName.value = "";
+}
+
+async function loadPresetDirectory(fileList) {
+  const selectedFiles = fileList ? [...fileList] : [];
+  if (selectedFiles.length === 0) {
+    return;
+  }
+
+  state.presets.loading = true;
+  renderPresetControls();
+
+  try {
+    const yamlFiles = selectedFiles.filter((file) => YAML_EXTENSION_RE.test(file.name));
+
+    if (yamlFiles.length === 0) {
+      state.presets.entries = [];
+      state.presets.selectedId = "";
+      state.presets.sourceDirectory = "";
+      setStatus("No .yaml/.yml files found in selected directory.", "warn");
+      return;
+    }
+
+    const loadedEntries = [];
+    const skippedFiles = [];
+
+    for (const file of yamlFiles) {
+      try {
+        const parsed = parseYamlDocument(await file.text());
+        const normalizedPreset = normalizePresetConfig(parsed);
+        const id = file.webkitRelativePath || file.name;
+        loadedEntries.push({
+          id,
+          label: id,
+          preset: normalizedPreset,
+        });
+      } catch (error) {
+        skippedFiles.push(`${file.name} (${error.message})`);
+      }
+    }
+
+    loadedEntries.sort((left, right) => left.label.localeCompare(right.label));
+    state.presets.entries = loadedEntries;
+    state.presets.selectedId = loadedEntries[0] ? loadedEntries[0].id : "";
+    state.presets.sourceDirectory = detectPresetDirectoryLabel(yamlFiles);
+
+    if (loadedEntries.length === 0) {
+      setStatus("No valid YAML presets could be parsed from selected directory.", "warn");
+      return;
+    }
+
+    if (skippedFiles.length > 0) {
+      const preview = skippedFiles.slice(0, 3).join(", ");
+      const suffix = skippedFiles.length > 3 ? ", ..." : "";
+      setStatus(
+        `Loaded ${loadedEntries.length.toLocaleString()} preset(s); skipped ${skippedFiles.length.toLocaleString()} invalid file(s): ${preview}${suffix}`,
+        "warn"
+      );
+      return;
+    }
+
+    setStatus(`Loaded ${loadedEntries.length.toLocaleString()} preset(s).`, "ok");
+  } finally {
+    state.presets.loading = false;
+    renderPresetControls();
+  }
+}
+
+function detectPresetDirectoryLabel(files) {
+  if (!files || files.length === 0) {
+    return "";
+  }
+
+  const sample = files.find((file) => file.webkitRelativePath) || files[0];
+  const relPath = sample.webkitRelativePath || sample.name;
+  const parts = relPath.split("/");
+  if (parts.length > 1) {
+    return parts[0];
+  }
+  return "";
+}
+
+function renderPresetControls() {
+  const options = [];
+
+  if (state.presets.loading) {
+    options.push("<option value=''>Loading presets...</option>");
+  } else if (state.presets.entries.length === 0) {
+    options.push("<option value=''>No presets loaded</option>");
+  } else {
+    state.presets.entries.forEach((entry) => {
+      options.push(`<option value="${escapeHtml(entry.id)}">${escapeHtml(getPresetLabel(entry.label))}</option>`);
+    });
+  }
+
+  els.configPresetSelect.innerHTML = options.join("");
+  els.configPresetSelect.disabled = state.presets.loading || state.presets.entries.length === 0;
+
+  if (state.presets.entries.some((entry) => entry.id === state.presets.selectedId)) {
+    els.configPresetSelect.value = state.presets.selectedId;
+  } else {
+    els.configPresetSelect.value = "";
+  }
+
+  els.applyPresetBtn.disabled =
+    state.headers.length === 0 || state.presets.loading || state.presets.entries.length === 0;
+  els.savePresetBtn.disabled = state.headers.length === 0;
+
+  if (state.presets.entries.length === 0) {
+    els.presetMeta.innerHTML =
+      "Click <strong>Load presets</strong> and choose a directory containing .yaml/.yml files.";
+    return;
+  }
+
+  const dirLabel = state.presets.sourceDirectory ? ` from <code>${escapeHtml(state.presets.sourceDirectory)}</code>` : "";
+  els.presetMeta.innerHTML = `Loaded ${state.presets.entries.length.toLocaleString()} preset(s)${dirLabel}.`;
+}
+
+function getPresetLabel(path) {
+  const parts = String(path || "").split("/");
+  return parts[parts.length - 1] || path;
+}
+
+function parseFiltersMap(rawFilters) {
+  if (!rawFilters) {
+    return {};
+  }
+
+  if (Array.isArray(rawFilters)) {
+    const mapped = {};
+    rawFilters.forEach((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return;
+      }
+      const column = String(entry.column || "").trim();
+      if (!column) {
+        return;
+      }
+      mapped[column] = String(entry.query || "");
+    });
+    return mapped;
+  }
+
+  if (typeof rawFilters === "object") {
+    const mapped = {};
+    Object.entries(rawFilters).forEach(([column, query]) => {
+      const trimmed = String(column || "").trim();
+      if (!trimmed) {
+        return;
+      }
+      mapped[trimmed] = String(query ?? "");
+    });
+    return mapped;
+  }
+
+  return {};
+}
+
+function normalizePresetConfig(rawPreset) {
+  if (!rawPreset || typeof rawPreset !== "object" || Array.isArray(rawPreset)) {
+    throw new Error("Preset must be a YAML object.");
+  }
+
+  const data = rawPreset.data && typeof rawPreset.data === "object" && !Array.isArray(rawPreset.data) ? rawPreset.data : {};
+  const plot2d =
+    rawPreset.plot2d && typeof rawPreset.plot2d === "object" && !Array.isArray(rawPreset.plot2d) ? rawPreset.plot2d : {};
+  const plot3d =
+    rawPreset.plot3d && typeof rawPreset.plot3d === "object" && !Array.isArray(rawPreset.plot3d) ? rawPreset.plot3d : {};
+  const sort = data.sort && typeof data.sort === "object" && !Array.isArray(data.sort) ? data.sort : {};
+  const subFilter2d =
+    plot2d.subFilter && typeof plot2d.subFilter === "object" && !Array.isArray(plot2d.subFilter) ? plot2d.subFilter : {};
+  const subFilter3d =
+    plot3d.subFilter && typeof plot3d.subFilter === "object" && !Array.isArray(plot3d.subFilter) ? plot3d.subFilter : {};
+
+  const style = String(plot2d.style || "both");
+  const sortDirection = String(sort.direction || "none");
+
+  return {
+    version: Number.isFinite(Number(rawPreset.version)) ? Number(rawPreset.version) : 1,
+    name: String(rawPreset.name || ""),
+    data: {
+      filters: parseFiltersMap(data.filters),
+      sort: {
+        column: sort.column === null || sort.column === undefined ? null : String(sort.column),
+        direction: ["none", "asc", "desc"].includes(sortDirection) ? sortDirection : "none",
+      },
+      statsColumn: data.statsColumn === null || data.statsColumn === undefined ? null : String(data.statsColumn),
+    },
+    plot2d: {
+      useIndexX: plot2d.useIndexX === undefined ? true : Boolean(plot2d.useIndexX),
+      xColumn: plot2d.xColumn === null || plot2d.xColumn === undefined ? null : String(plot2d.xColumn),
+      yColumns: Array.isArray(plot2d.yColumns) ? plot2d.yColumns.map((item) => String(item)) : [],
+      style: ["scatter", "line", "both"].includes(style) ? style : "both",
+      subFilter: {
+        column: subFilter2d.column === null || subFilter2d.column === undefined ? null : String(subFilter2d.column),
+        query: String(subFilter2d.query || ""),
+      },
+    },
+    plot3d: {
+      xColumn: plot3d.xColumn === null || plot3d.xColumn === undefined ? null : String(plot3d.xColumn),
+      yColumn: plot3d.yColumn === null || plot3d.yColumn === undefined ? null : String(plot3d.yColumn),
+      zColumn: plot3d.zColumn === null || plot3d.zColumn === undefined ? null : String(plot3d.zColumn),
+      colorColumn: plot3d.colorColumn === null || plot3d.colorColumn === undefined ? null : String(plot3d.colorColumn),
+      sizeColumn: plot3d.sizeColumn === null || plot3d.sizeColumn === undefined ? null : String(plot3d.sizeColumn),
+      baseSize: Number.isFinite(Number(plot3d.baseSize)) ? clamp(Number(plot3d.baseSize), 1, 12) : 4,
+      subFilter: {
+        column: subFilter3d.column === null || subFilter3d.column === undefined ? null : String(subFilter3d.column),
+        query: String(subFilter3d.query || ""),
+      },
+    },
+  };
+}
+
+function resolveColumnIndexByName(columnName, missingColumns) {
+  if (columnName === null || columnName === undefined) {
+    return null;
+  }
+
+  const name = String(columnName).trim();
+  if (!name) {
+    return null;
+  }
+
+  let match = state.columns.find((column) => column.name === name);
+  if (!match) {
+    const lower = name.toLowerCase();
+    match = state.columns.find((column) => column.name.toLowerCase() === lower);
+  }
+
+  if (!match) {
+    missingColumns.add(name);
+    return null;
+  }
+
+  return match.index;
+}
+
+function resolveNumericColumnIndexByName(columnName, missingColumns) {
+  const index = resolveColumnIndexByName(columnName, missingColumns);
+  if (index === null) {
+    return null;
+  }
+
+  if (state.columns[index].type !== "number") {
+    missingColumns.add(String(columnName));
+    return null;
+  }
+
+  return index;
+}
+
+function applyPresetConfig(preset) {
+  initializeDataOps();
+  initializePlotSelections();
+
+  const missingColumns = new Set();
+  Object.keys(state.dataOps.filters).forEach((key) => {
+    state.dataOps.filters[key] = "";
+  });
+
+  Object.entries(preset.data.filters).forEach(([columnName, query]) => {
+    const index = resolveColumnIndexByName(columnName, missingColumns);
+    if (index === null) {
+      return;
+    }
+    state.dataOps.filters[index] = String(query || "");
+  });
+
+  state.dataOps.sortDirection = preset.data.sort.direction;
+  state.dataOps.sortColumn = resolveColumnIndexByName(preset.data.sort.column, missingColumns);
+  if (state.dataOps.sortColumn === null) {
+    state.dataOps.sortDirection = "none";
+  }
+
+  const statsColumn = resolveColumnIndexByName(preset.data.statsColumn, missingColumns);
+  if (statsColumn !== null) {
+    state.dataOps.statsColumn = statsColumn;
+  }
+
+  state.plot2d.useIndexX = preset.plot2d.useIndexX;
+  state.plot2d.style = preset.plot2d.style;
+  state.plot2d.xColumn = resolveNumericColumnIndexByName(preset.plot2d.xColumn, missingColumns);
+  state.plot2d.yColumns = new Set();
+  preset.plot2d.yColumns.forEach((columnName) => {
+    const index = resolveNumericColumnIndexByName(columnName, missingColumns);
+    if (index !== null) {
+      state.plot2d.yColumns.add(index);
+    }
+  });
+  state.plot2d.subFilterColumn = resolveColumnIndexByName(preset.plot2d.subFilter.column, missingColumns);
+  state.plot2d.subFilterQuery = preset.plot2d.subFilter.query;
+
+  state.plot3d.xColumn = resolveNumericColumnIndexByName(preset.plot3d.xColumn, missingColumns);
+  state.plot3d.yColumn = resolveNumericColumnIndexByName(preset.plot3d.yColumn, missingColumns);
+  state.plot3d.zColumn = resolveNumericColumnIndexByName(preset.plot3d.zColumn, missingColumns);
+  state.plot3d.colorColumn = resolveNumericColumnIndexByName(preset.plot3d.colorColumn, missingColumns);
+  state.plot3d.sizeColumn = resolveNumericColumnIndexByName(preset.plot3d.sizeColumn, missingColumns);
+  state.plot3d.baseSize = clamp(preset.plot3d.baseSize, 1, 12);
+  state.plot3d.subFilterColumn = resolveColumnIndexByName(preset.plot3d.subFilter.column, missingColumns);
+  state.plot3d.subFilterQuery = preset.plot3d.subFilter.query;
+
+  return [...missingColumns];
+}
+
+function buildCurrentPresetConfig() {
+  const filters = {};
+  Object.entries(state.dataOps.filters).forEach(([indexText, query]) => {
+    const trimmed = String(query || "").trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const index = Number(indexText);
+    if (!state.headers[index]) {
+      return;
+    }
+    filters[state.headers[index]] = trimmed;
+  });
+
+  const yColumns = [...state.plot2d.yColumns]
+    .sort((left, right) => left - right)
+    .map((index) => state.headers[index])
+    .filter((name) => Boolean(name));
+
+  return {
+    version: 1,
+    name: String(els.savePresetName.value || "").trim() || defaultPresetName(),
+    data: {
+      filters,
+      sort: {
+        column: state.dataOps.sortColumn === null ? null : state.headers[state.dataOps.sortColumn] || null,
+        direction: state.dataOps.sortDirection,
+      },
+      statsColumn: state.dataOps.statsColumn === null ? null : state.headers[state.dataOps.statsColumn] || null,
+    },
+    plot2d: {
+      useIndexX: state.plot2d.useIndexX,
+      xColumn: state.plot2d.xColumn === null ? null : state.headers[state.plot2d.xColumn] || null,
+      yColumns,
+      style: state.plot2d.style,
+      subFilter: {
+        column: state.plot2d.subFilterColumn === null ? null : state.headers[state.plot2d.subFilterColumn] || null,
+        query: state.plot2d.subFilterQuery,
+      },
+    },
+    plot3d: {
+      xColumn: state.plot3d.xColumn === null ? null : state.headers[state.plot3d.xColumn] || null,
+      yColumn: state.plot3d.yColumn === null ? null : state.headers[state.plot3d.yColumn] || null,
+      zColumn: state.plot3d.zColumn === null ? null : state.headers[state.plot3d.zColumn] || null,
+      colorColumn: state.plot3d.colorColumn === null ? null : state.headers[state.plot3d.colorColumn] || null,
+      sizeColumn: state.plot3d.sizeColumn === null ? null : state.headers[state.plot3d.sizeColumn] || null,
+      baseSize: state.plot3d.baseSize,
+      subFilter: {
+        column: state.plot3d.subFilterColumn === null ? null : state.headers[state.plot3d.subFilterColumn] || null,
+        query: state.plot3d.subFilterQuery,
+      },
+    },
+  };
+}
+
+function defaultPresetName() {
+  const base = (state.fileName || "preset").replace(/\\.csv$/i, "");
+  return `${base}-view`;
+}
+
+function sanitizeFileName(name) {
+  const trimmed = String(name || "").trim();
+  const normalized = trimmed.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
+  return normalized || "preset";
+}
+
+async function applySelectedPreset() {
+  if (state.headers.length === 0) {
+    setStatus("Load a CSV before applying a preset.", "warn");
+    return;
+  }
+
+  const selectedEntry = state.presets.entries.find((entry) => entry.id === state.presets.selectedId);
+  if (!selectedEntry) {
+    setStatus("Select a preset first.", "warn");
+    return;
+  }
+
+  try {
+    const preset = selectedEntry.preset;
+    const missingColumns = applyPresetConfig(preset);
+
+    refreshSelectors();
+    renderViews();
+
+    const displayName = preset.name || getPresetLabel(selectedEntry.label).replace(/\\.ya?ml$/i, "");
+    if (missingColumns.length > 0) {
+      const preview = missingColumns.slice(0, 6).join(", ");
+      const suffix = missingColumns.length > 6 ? ", ..." : "";
+      setStatus(
+        `Applied preset '${displayName}' with ${missingColumns.length.toLocaleString()} missing column mapping(s): ${preview}${suffix}`,
+        "warn"
+      );
+      return;
+    }
+
+    setStatus(`Applied preset '${displayName}'.`, "ok");
+  } catch (error) {
+    setStatus(`Could not apply preset: ${error.message}`, "error");
+  }
+}
+
+function saveCurrentPresetYaml() {
+  if (state.headers.length === 0) {
+    setStatus("Load a CSV before saving a preset.", "warn");
+    return;
+  }
+
+  const preset = buildCurrentPresetConfig();
+  const fileName = `${sanitizeFileName(els.savePresetName.value || preset.name)}.yaml`;
+  const yaml = stringifyYamlDocument(preset);
+
+  downloadText(fileName, yaml, "application/x-yaml;charset=utf-8");
+  setStatus(`Downloaded preset ${fileName}.`, "ok");
 }
 
 function initializeDataOps() {
@@ -469,6 +930,7 @@ function initializePlotSelections() {
 function refreshSelectors() {
   const numericColumns = state.columns.filter((column) => column.type === "number");
 
+  renderPresetControls();
   renderDataControls();
   renderPlotSubfilterControls();
   render2dSelectors(numericColumns);
@@ -1185,7 +1647,11 @@ function getExportFileName() {
 }
 
 function downloadCsv(fileName, content) {
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  downloadText(fileName, content, "text/csv;charset=utf-8");
+}
+
+function downloadText(fileName, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

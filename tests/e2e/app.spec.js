@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 
 const fixturePath = path.resolve(process.cwd(), "tests/fixtures/sensor.csv");
+const presetFixtureDirectory = path.resolve(process.cwd(), "tests/fixtures/presets");
 
 async function loadFixture(page) {
   await page.goto("/");
@@ -82,6 +83,22 @@ test("supports comma-compound filters in Data and plot subfilters", async ({ pag
   await page.click("button[data-tab='plot2d']");
   await page.selectOption("#subFilterColumn2d", "2");
   await page.fill("#subFilterQuery2d", ">101.2,<101.6");
+  await expect(page.locator("#legend2d")).toContainText("Using 1 of 2 filtered rows");
+});
+
+test("applies YAML preset configs from a user-selected directory", async ({ page }) => {
+  await loadFixture(page);
+
+  await page.setInputFiles("#presetDirectoryInput", presetFixtureDirectory);
+  await expect(page.locator("#configPresetSelect")).toBeEnabled();
+  await page.selectOption("#configPresetSelect", { label: "sensor-focus.yaml" });
+  await page.click("#applyPresetBtn");
+
+  await expect(page.locator("#statusBar")).toContainText("Applied preset");
+  await expect(page.locator("#tableMeta")).toContainText("2 of 6 rows");
+  await expect(page.locator("#tableContainer tbody tr").first().locator("td").nth(2)).toHaveText("101.7");
+
+  await page.click("button[data-tab='plot2d']");
   await expect(page.locator("#legend2d")).toContainText("Using 1 of 2 filtered rows");
 });
 

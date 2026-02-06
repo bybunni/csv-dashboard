@@ -133,6 +133,33 @@ body {
   background: #fffbeb;
 }
 
+.preset-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.3fr) auto auto minmax(180px, 220px) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.preset-field {
+  display: grid;
+  gap: 4px;
+}
+
+.preset-field span {
+  font-size: 0.82rem;
+  color: #334155;
+}
+
+#savePresetName {
+  min-width: 0;
+}
+
+#presetMeta code {
+  background: #e2e8f0;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
 .tabs {
   display: flex;
   gap: 6px;
@@ -535,6 +562,11 @@ input[type="text"],
 
   .status-row {
     flex-wrap: wrap;
+  }
+
+  .preset-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 
   .plot-surface {

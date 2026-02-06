@@ -1,0 +1,29 @@
+version: 1
+name: "Sensor focus"
+data:
+  filters:
+    temp_c: ">20.8"
+  sort:
+    column: "pressure_kpa"
+    direction: "desc"
+  statsColumn: "temp_c"
+plot2d:
+  useIndexX: true
+  xColumn: null
+  yColumns:
+    - "temp_c"
+    - "pressure_kpa"
+  style: "both"
+  subFilter:
+    column: "pressure_kpa"
+    query: ">=101.7"
+plot3d:
+  xColumn: "time"
+  yColumn: "temp_c"
+  zColumn: "pressure_kpa"
+  colorColumn: "humidity_pct"
+  sizeColumn: "vibration"
+  baseSize: 6
+  subFilter:
+    column: "pressure_kpa"
+    query: ">=101.6"
