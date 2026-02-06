@@ -84,6 +84,31 @@ npm run tauri:dev
 
 This launches a local desktop window using the same frontend in `app-web/`.
 
+## Standalone release binaries (GitHub Actions)
+
+Standalone binaries (no installers) are built by:
+
+- `/Users/bunni/workspace/csv-dasboard/.github/workflows/release-binaries.yml`
+
+Platforms:
+
+- Linux x86_64
+- Windows x86_64
+- macOS x86_64
+- macOS arm64
+
+How to trigger:
+
+- Tag push (recommended): push a tag like `v0.1.0`
+- Manual: run the workflow from the Actions tab (`workflow_dispatch`)
+
+On tag pushes, the workflow also creates/updates a GitHub Release and attaches:
+
+- `csv-dashboard-linux-x86_64.tar.gz`
+- `csv-dashboard-windows-x86_64.zip`
+- `csv-dashboard-macos-x86_64.tar.gz`
+- `csv-dashboard-macos-arm64.tar.gz`
+
 ## Regression testing
 
 Install dependencies:
