@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local CSV Explorer</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Local CSV Explorer</h1>
+          <p>Drop a CSV, inspect rows, and plot 2D/3D views without leaving your machine.</p>
+        </div>
+      </header>
+
+      <section class="ingest">
+        <div id="dropZone" class="drop-zone" aria-label="CSV drop zone">
+          <p><strong>Drop CSV here</strong> or use <button id="browseBtn" class="link-btn" type="button">Browse</button></p>
+          <p class="subtle">Data is parsed in-browser only. No backend, no upload.</p>
+          <input id="fileInput" type="file" accept=".csv,text/csv" hidden />
+        </div>
+        <div id="statusBar" class="status muted">No file loaded.</div>
+      </section>
+
+      <nav class="tabs" aria-label="View tabs">
+        <button class="tab active" data-tab="data" type="button">Data</button>
+        <button class="tab" data-tab="plot2d" type="button">2D Plot</button>
+        <button class="tab" data-tab="plot3d" type="button">3D Plot</button>
+      </nav>
+
+      <main>
+        <section id="panel-data" class="panel active">
+          <div class="panel-head">
+            <h2>Spreadsheet</h2>
+            <div id="tableMeta" class="panel-meta"></div>
+          </div>
+          <div id="tableContainer" class="table-wrap empty">
+            <div class="empty-message">Load a CSV to view rows and columns.</div>
+          </div>
+        </section>
+
+        <section id="panel-plot2d" class="panel">
+          <div class="controls controls-2d">
+            <div class="control-block">
+              <h3>Axes</h3>
+              <label class="inline-option" for="xIndexMode">
+                <input id="xIndexMode" type="checkbox" checked />
+                Use row index as X
+              </label>
+              <label for="xSelect2d">X Column</label>
+              <select id="xSelect2d" disabled></select>
+              <label for="plotStyle2d">Style</label>
+              <select id="plotStyle2d">
+                <option value="scatter">Scatter</option>
+                <option value="line">Line</option>
+                <option value="both" selected>Line + Scatter</option>
+              </select>
+            </div>
+
+            <div class="control-block">
+              <h3>Series</h3>
+              <div id="yColumns2d" class="checklist"></div>
+            </div>
+          </div>
+
+          <div class="canvas-card">
+            <canvas id="canvas2d" width="1000" height="520"></canvas>
+          </div>
+          <div id="legend2d" class="legend muted"></div>
+        </section>
+
+        <section id="panel-plot3d" class="panel">
+          <div class="controls controls-3d">
+            <div class="control-block">
+              <h3>Axes</h3>
+              <label for="xSelect3d">X</label>
+              <select id="xSelect3d"></select>
+              <label for="ySelect3d">Y</label>
+              <select id="ySelect3d"></select>
+              <label for="zSelect3d">Z</label>
+              <select id="zSelect3d"></select>
+            </div>
+
+            <div class="control-block">
+              <h3>Appearance</h3>
+              <label for="colorSelect3d">Color Column (optional)</label>
+              <select id="colorSelect3d"></select>
+              <label for="sizeSelect3d">Size Column (optional)</label>
+              <select id="sizeSelect3d"></select>
+
+              <label for="pointSize3d">Base point size</label>
+              <div class="range-row">
+                <input id="pointSize3d" type="range" min="1" max="12" value="4" />
+                <span id="pointSizeValue3d">4</span>
+              </div>
+
+              <button id="reset3dView" class="secondary-btn" type="button">Reset 3D view</button>
+            </div>
+
+            <div class="control-block note">
+              <h3>Interaction</h3>
+              <p>Drag in the chart to rotate.</p>
+              <p>Use mouse wheel / trackpad scroll to zoom.</p>
+            </div>
+          </div>
+
+          <div class="canvas-card">
+            <canvas id="canvas3d" width="1000" height="560"></canvas>
+          </div>
+          <div id="meta3d" class="legend muted"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
