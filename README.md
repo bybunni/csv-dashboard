@@ -1,21 +1,29 @@
 # Local CSV Explorer
 
-A local-first web app for CSV exploration and visualization.
+A local-first CSV exploration app with two runtime modes:
+
+- Browser mode: static web app served from `app-web/`
+- Desktop mode: Tauri shell in `src-tauri/` that loads the same frontend
 
 ## Repo structure
 
 ```text
 /Users/bunni/workspace/csv-dasboard
-  .github/workflows/test.yml
+  app-web/
+    app.js
+    index.html
+    lib/
+    style.css
+    vendor/
+  src-tauri/
+    src/main.rs
+    capabilities/default.json
+    tauri.conf.json
   tests/
     e2e/app.spec.js
     fixtures/
-    unit/csv-core.test.js
-  web/
-    app.js
-    index.html
-    lib/csv-core.js
-    style.css
+    unit/
+  scripts/prepare-app-web-assets.mjs
   package.json
   playwright.config.js
   vitest.config.js
@@ -36,31 +44,43 @@ A local-first web app for CSV exploration and visualization.
 - Plot workflow is additive:
   - Data tab filters/sort define the base row set
   - 2D/3D tabs can apply additional plot-only subfilters on top
-- Export button (top-right) writes the current active view to CSV
+- Export button writes the current active view to CSV
   - Data tab: filtered + sorted rows
-  - 2D/3D tabs: Data-filtered rows plus plot subfilter
+  - 2D/3D tabs: data-filtered rows plus plot subfilter
 - Fully local runtime: no backend and no data upload
 
-## Run locally
+## Browser mode
 
 From `/Users/bunni/workspace/csv-dasboard`:
 
 ```bash
-python3 -m http.server 8080 --directory web
+npm install
+npm run serve
 ```
 
-Then open [http://localhost:8080](http://localhost:8080).
+Open [http://localhost:8080](http://localhost:8080).
+
+## Desktop mode (Tauri)
+
+From `/Users/bunni/workspace/csv-dasboard`:
+
+```bash
+npm install
+npm run tauri:dev
+```
+
+This launches a local desktop window using the same frontend in `app-web/`.
 
 ## Regression testing
 
-Install dev dependencies:
+Install dependencies:
 
 ```bash
 npm install
 npx playwright install --with-deps chromium
 ```
 
-`npm install` also provisions a local Plotly bundle at `web/vendor/plotly.min.js`, so runtime charting does not need internet access.
+`npm install` also provisions the local Plotly bundle at `app-web/vendor/plotly.min.js`, so charting works offline after install.
 
 Run all tests:
 
@@ -74,7 +94,7 @@ Run only unit tests:
 npm run test:unit
 ```
 
-Run unit tests with enforced coverage thresholds:
+Run unit tests with coverage thresholds:
 
 ```bash
 npm run test:coverage

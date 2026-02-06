@@ -8,7 +8,7 @@ import {
   parseCsv,
   toNumber,
   valueToNullableNumber,
-} from "../../web/lib/csv-core.js";
+} from "../../app-web/lib/csv-core.js";
 
 describe("parseCsv", () => {
   it("parses quoted fields and escaped quotes", () => {

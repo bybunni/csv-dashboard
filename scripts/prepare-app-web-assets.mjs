@@ -2,7 +2,7 @@ import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 const source = path.resolve("node_modules/plotly.js-dist-min/plotly.min.js");
-const targetDir = path.resolve("web/vendor");
+const targetDir = path.resolve("app-web/vendor");
 const target = path.join(targetDir, "plotly.min.js");
 
 async function run() {

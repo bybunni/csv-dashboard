@@ -7,7 +7,7 @@ import {
   computeQuickStats,
   parseNumericFilter,
   splitFilterTokens,
-} from "../../web/lib/data-ops.js";
+} from "../../app-web/lib/data-ops.js";
 
 const columns = [
   { index: 0, name: "name", type: "string" },

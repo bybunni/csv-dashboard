@@ -6,7 +6,7 @@ export default defineConfig({
     environment: "node",
     coverage: {
       provider: "v8",
-      include: ["web/lib/**/*.js"],
+      include: ["app-web/lib/**/*.js"],
       reporter: ["text", "html"],
       reportsDirectory: "coverage",
       thresholds: {

@@ -5,20 +5,25 @@
   "description": "Local-first CSV explorer with regression tests",
   "type": "module",
   "scripts": {
-    "prepare:web-assets": "node scripts/prepare-web-assets.mjs",
-    "postinstall": "npm run prepare:web-assets",
-    "serve": "python3 -m http.server 8080 --directory web",
+    "prepare:app-web-assets": "node scripts/prepare-app-web-assets.mjs",
+    "postinstall": "npm run prepare:app-web-assets",
+    "serve": "python3 -m http.server 8080 --directory app-web",
+    "serve:tauri-dev": "python3 -m http.server 1420 --directory app-web",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "pretest:e2e": "npm run prepare:web-assets",
+    "pretest:e2e": "npm run prepare:app-web-assets",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
-    "test:e2e:install": "playwright install --with-deps chromium"
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.1",
+    "@tauri-apps/cli": "^2.2.4",
     "@vitest/coverage-v8": "^3.2.4",
     "vitest": "^3.2.4"
   },

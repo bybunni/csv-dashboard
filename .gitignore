@@ -6,4 +6,6 @@ coverage/
 playwright-report/
 test-results/
 .playwright/
-web/vendor/plotly.min.js
+app-web/vendor/plotly.min.js
+src-tauri/target/
+src-tauri/gen/
