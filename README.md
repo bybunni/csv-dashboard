@@ -93,7 +93,6 @@ Standalone binaries (no installers) are built by:
 Platforms:
 
 - Windows x86_64
-- macOS x86_64
 - macOS arm64
 
 How to trigger:
@@ -104,7 +103,6 @@ How to trigger:
 On tag pushes, the workflow also creates/updates a GitHub Release and attaches:
 
 - `csv-dashboard-windows-x86_64.exe`
-- `csv-dashboard-macos-x86_64.app.zip`
 - `csv-dashboard-macos-arm64.app.zip`
 
 ## Regression testing

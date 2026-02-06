@@ -35,11 +35,9 @@ git push origin v0.2.0
 
 - A workflow run for each target platform:
   - windows-x86_64
-  - macos-x86_64
   - macos-arm64
 - A GitHub Release for the tag with attached binaries:
   - `csv-dashboard-windows-x86_64.exe`
-  - `csv-dashboard-macos-x86_64.app.zip`
   - `csv-dashboard-macos-arm64.app.zip`
 
 ## If You Need to Re-run
