@@ -5,10 +5,13 @@
   "description": "Local-first CSV explorer with regression tests",
   "type": "module",
   "scripts": {
+    "prepare:web-assets": "node scripts/prepare-web-assets.mjs",
+    "postinstall": "npm run prepare:web-assets",
     "serve": "python3 -m http.server 8080 --directory web",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
+    "pretest:e2e": "npm run prepare:web-assets",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:install": "playwright install --with-deps chromium"
@@ -16,5 +19,8 @@
   "devDependencies": {
     "@playwright/test": "^1.50.1",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "plotly.js-dist-min": "^3.3.1"
   }
 }

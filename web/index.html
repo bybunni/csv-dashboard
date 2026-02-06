@@ -36,6 +36,31 @@
             <h2>Spreadsheet</h2>
             <div id="tableMeta" class="panel-meta"></div>
           </div>
+          <div class="controls controls-data">
+            <div class="control-block">
+              <h3>Sort</h3>
+              <label for="sortColumnSelect">Column</label>
+              <select id="sortColumnSelect"></select>
+              <label for="sortDirectionSelect">Direction</label>
+              <select id="sortDirectionSelect">
+                <option value="none">None</option>
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
+              <button id="clearSortBtn" class="secondary-btn" type="button">Clear sort</button>
+            </div>
+            <div class="control-block">
+              <h3>Per-column filters</h3>
+              <button id="clearFiltersBtn" class="secondary-btn" type="button">Clear filters</button>
+              <div id="filterControls" class="filter-grid"></div>
+            </div>
+            <div class="control-block">
+              <h3>Quick stats</h3>
+              <label for="statsColumnSelect">Column</label>
+              <select id="statsColumnSelect"></select>
+              <div id="quickStats" class="stats-grid muted">Load a CSV to compute stats.</div>
+            </div>
+          </div>
           <div id="tableContainer" class="table-wrap empty">
             <div class="empty-message">Load a CSV to view rows and columns.</div>
           </div>
@@ -66,7 +91,7 @@
           </div>
 
           <div class="canvas-card">
-            <canvas id="canvas2d" width="1000" height="520"></canvas>
+            <div id="plot2d" class="plot-surface"></div>
           </div>
           <div id="legend2d" class="legend muted"></div>
         </section>
@@ -101,19 +126,20 @@
 
             <div class="control-block note">
               <h3>Interaction</h3>
-              <p>Drag in the chart to rotate.</p>
+              <p>Drag to rotate in 3D mode.</p>
               <p>Use mouse wheel / trackpad scroll to zoom.</p>
             </div>
           </div>
 
           <div class="canvas-card">
-            <canvas id="canvas3d" width="1000" height="560"></canvas>
+            <div id="plot3d" class="plot-surface"></div>
           </div>
           <div id="meta3d" class="legend muted"></div>
         </section>
       </main>
     </div>
 
+    <script src="vendor/plotly.min.js"></script>
     <script type="module" src="app.js"></script>
   </body>
 </html>

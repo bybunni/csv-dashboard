@@ -32,3 +32,20 @@ test("renders 3D metadata after axis selection defaults", async ({ page }) => {
   await expect(page.locator("#xSelect3d")).toBeEnabled();
   await expect(page.locator("#meta3d")).toContainText("Points:");
 });
+
+test("applies column filters, sort, and updates quick stats", async ({ page }) => {
+  await loadFixture(page);
+
+  await page.fill("#filter-col-1", ">20.8");
+  await expect(page.locator("#tableMeta")).toContainText("2 of 6 rows");
+  await expect(page.locator("#tableContainer tbody tr")).toHaveCount(2);
+
+  await page.selectOption("#sortColumnSelect", "2");
+  await page.selectOption("#sortDirectionSelect", "desc");
+
+  await expect(page.locator("#tableContainer tbody tr").first().locator("td").nth(2)).toHaveText("101.7");
+
+  await page.selectOption("#statsColumnSelect", "1");
+  await expect(page.locator("#quickStats")).toContainText("Mean");
+  await expect(page.locator("#quickStats")).toContainText("Rows in view");
+});

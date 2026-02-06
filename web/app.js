@@ -1,7 +1,6 @@
 import {
   clamp,
   escapeHtml,
-  formatTick,
   inferColumnTypes,
   normalizeRows,
   parseCsv,
@@ -10,6 +9,9 @@ import {
 } from "./lib/csv-core.js";
 
 const MAX_TABLE_ROWS = 2000;
+const DEFAULT_3D_CAMERA = {
+  eye: { x: 1.65, y: 1.45, z: 1.2 },
+};
 
 const palette = [
   "#0f766e",
@@ -31,6 +33,12 @@ const state = {
   rows: [],
   columns: [],
   tab: "data",
+  dataOps: {
+    filters: {},
+    sortColumn: null,
+    sortDirection: "none",
+    statsColumn: null,
+  },
   plot2d: {
     useIndexX: true,
     xColumn: null,
@@ -44,16 +52,8 @@ const state = {
     colorColumn: null,
     sizeColumn: null,
     baseSize: 4,
-    view: {
-      rotX: -0.45,
-      rotY: 0.85,
-      zoom: 1.15,
-    },
-  },
-  drag3d: {
-    active: false,
-    lastX: 0,
-    lastY: 0,
+    camera: { ...DEFAULT_3D_CAMERA },
+    relayoutBound: false,
   },
 };
 
@@ -70,11 +70,18 @@ const els = {
   },
   tableContainer: document.getElementById("tableContainer"),
   tableMeta: document.getElementById("tableMeta"),
+  sortColumnSelect: document.getElementById("sortColumnSelect"),
+  sortDirectionSelect: document.getElementById("sortDirectionSelect"),
+  clearSortBtn: document.getElementById("clearSortBtn"),
+  clearFiltersBtn: document.getElementById("clearFiltersBtn"),
+  filterControls: document.getElementById("filterControls"),
+  statsColumnSelect: document.getElementById("statsColumnSelect"),
+  quickStats: document.getElementById("quickStats"),
   xIndexMode: document.getElementById("xIndexMode"),
   xSelect2d: document.getElementById("xSelect2d"),
   plotStyle2d: document.getElementById("plotStyle2d"),
   yColumns2d: document.getElementById("yColumns2d"),
-  canvas2d: document.getElementById("canvas2d"),
+  plot2d: document.getElementById("plot2d"),
   legend2d: document.getElementById("legend2d"),
   xSelect3d: document.getElementById("xSelect3d"),
   ySelect3d: document.getElementById("ySelect3d"),
@@ -84,7 +91,7 @@ const els = {
   pointSize3d: document.getElementById("pointSize3d"),
   pointSizeValue3d: document.getElementById("pointSizeValue3d"),
   reset3dView: document.getElementById("reset3dView"),
-  canvas3d: document.getElementById("canvas3d"),
+  plot3d: document.getElementById("plot3d"),
   meta3d: document.getElementById("meta3d"),
 };
 
@@ -93,11 +100,22 @@ init();
 function init() {
   bindTabControls();
   bindDropZone();
+  bindDataControls();
   bind2dControls();
   bind3dControls();
+  refreshSelectors();
+  renderViews();
+
   window.addEventListener("resize", () => {
-    draw2D();
-    draw3D();
+    if (!window.Plotly) {
+      return;
+    }
+    if (state.tab === "plot2d") {
+      window.Plotly.Plots.resize(els.plot2d);
+    }
+    if (state.tab === "plot3d") {
+      window.Plotly.Plots.resize(els.plot3d);
+    }
   });
 }
 
@@ -117,11 +135,12 @@ function setTab(tab) {
     panel.classList.toggle("active", key === tab);
   });
 
+  const viewRows = buildViewRows();
   if (tab === "plot2d") {
-    draw2D();
+    draw2D(viewRows);
   }
   if (tab === "plot3d") {
-    draw3D();
+    draw3D(viewRows);
   }
 }
 
@@ -160,6 +179,111 @@ function bindDropZone() {
   });
 }
 
+function bindDataControls() {
+  els.sortColumnSelect.addEventListener("change", () => {
+    state.dataOps.sortColumn = valueToNullableNumber(els.sortColumnSelect.value);
+    renderViews();
+  });
+
+  els.sortDirectionSelect.addEventListener("change", () => {
+    state.dataOps.sortDirection = els.sortDirectionSelect.value;
+    renderViews();
+  });
+
+  els.clearSortBtn.addEventListener("click", () => {
+    state.dataOps.sortColumn = null;
+    state.dataOps.sortDirection = "none";
+    els.sortColumnSelect.value = "";
+    els.sortDirectionSelect.value = "none";
+    renderViews();
+  });
+
+  els.clearFiltersBtn.addEventListener("click", () => {
+    Object.keys(state.dataOps.filters).forEach((key) => {
+      state.dataOps.filters[key] = "";
+    });
+    els.filterControls.querySelectorAll("input[data-col-index]").forEach((input) => {
+      input.value = "";
+    });
+    renderViews();
+  });
+
+  els.filterControls.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    const colIndex = target.dataset.colIndex;
+    if (colIndex === undefined) {
+      return;
+    }
+    state.dataOps.filters[colIndex] = target.value;
+    renderViews();
+  });
+
+  els.statsColumnSelect.addEventListener("change", () => {
+    state.dataOps.statsColumn = valueToNullableNumber(els.statsColumnSelect.value);
+    const viewRows = buildViewRows();
+    renderQuickStats(viewRows);
+  });
+}
+
+function bind2dControls() {
+  els.xIndexMode.addEventListener("change", () => {
+    state.plot2d.useIndexX = els.xIndexMode.checked;
+    els.xSelect2d.disabled = state.plot2d.useIndexX;
+    draw2D(buildViewRows());
+  });
+
+  els.xSelect2d.addEventListener("change", () => {
+    state.plot2d.xColumn = valueToNullableNumber(els.xSelect2d.value);
+    draw2D(buildViewRows());
+  });
+
+  els.plotStyle2d.addEventListener("change", () => {
+    state.plot2d.style = els.plotStyle2d.value;
+    draw2D(buildViewRows());
+  });
+}
+
+function bind3dControls() {
+  els.xSelect3d.addEventListener("change", () => {
+    state.plot3d.xColumn = valueToNullableNumber(els.xSelect3d.value);
+    draw3D(buildViewRows());
+  });
+
+  els.ySelect3d.addEventListener("change", () => {
+    state.plot3d.yColumn = valueToNullableNumber(els.ySelect3d.value);
+    draw3D(buildViewRows());
+  });
+
+  els.zSelect3d.addEventListener("change", () => {
+    state.plot3d.zColumn = valueToNullableNumber(els.zSelect3d.value);
+    draw3D(buildViewRows());
+  });
+
+  els.colorSelect3d.addEventListener("change", () => {
+    state.plot3d.colorColumn = valueToNullableNumber(els.colorSelect3d.value);
+    draw3D(buildViewRows());
+  });
+
+  els.sizeSelect3d.addEventListener("change", () => {
+    state.plot3d.sizeColumn = valueToNullableNumber(els.sizeSelect3d.value);
+    draw3D(buildViewRows());
+  });
+
+  els.pointSize3d.addEventListener("input", () => {
+    state.plot3d.baseSize = Number(els.pointSize3d.value);
+    els.pointSizeValue3d.textContent = String(state.plot3d.baseSize);
+    draw3D(buildViewRows());
+  });
+
+  els.reset3dView.addEventListener("click", () => {
+    state.plot3d.camera = { ...DEFAULT_3D_CAMERA };
+    draw3D(buildViewRows());
+  });
+}
+
 async function loadCsvFile(file) {
   if (!file.name.toLowerCase().endsWith(".csv") && file.type !== "text/csv") {
     setStatus("Selected file does not look like a CSV. Parsing anyway.", "warn");
@@ -187,11 +311,10 @@ async function loadCsvFile(file) {
     state.rows = dataRows;
     state.columns = inferColumnTypes(headers, dataRows);
 
+    initializeDataOps();
     initializePlotSelections();
     refreshSelectors();
-    renderTable();
-    draw2D();
-    draw3D();
+    renderViews();
 
     const numericCount = state.columns.filter((column) => column.type === "number").length;
     setStatus(
@@ -201,15 +324,9 @@ async function loadCsvFile(file) {
       "ok"
     );
   } catch (error) {
-    state.fileName = "";
-    state.headers = [];
-    state.rows = [];
-    state.columns = [];
-    resetPlots();
+    clearLoadedData();
     refreshSelectors();
-    renderTable();
-    draw2D();
-    draw3D();
+    renderViews();
     setStatus(`Could not parse CSV: ${error.message}`, "error");
   }
 }
@@ -221,14 +338,40 @@ function renderDelimiter(delimiter) {
   return delimiter;
 }
 
-function resetPlots() {
+function clearLoadedData() {
+  state.fileName = "";
+  state.delimiter = ",";
+  state.headers = [];
+  state.rows = [];
+  state.columns = [];
+
+  state.dataOps.filters = {};
+  state.dataOps.sortColumn = null;
+  state.dataOps.sortDirection = "none";
+  state.dataOps.statsColumn = null;
+
   state.plot2d.yColumns = new Set();
   state.plot2d.xColumn = null;
+
   state.plot3d.xColumn = null;
   state.plot3d.yColumn = null;
   state.plot3d.zColumn = null;
   state.plot3d.colorColumn = null;
   state.plot3d.sizeColumn = null;
+  state.plot3d.camera = { ...DEFAULT_3D_CAMERA };
+}
+
+function initializeDataOps() {
+  const filters = {};
+  state.headers.forEach((_, index) => {
+    filters[index] = "";
+  });
+  state.dataOps.filters = filters;
+  state.dataOps.sortColumn = null;
+  state.dataOps.sortDirection = "none";
+
+  const firstNumeric = state.columns.find((column) => column.type === "number");
+  state.dataOps.statsColumn = firstNumeric ? firstNumeric.index : state.headers.length ? 0 : null;
 }
 
 function initializePlotSelections() {
@@ -237,25 +380,104 @@ function initializePlotSelections() {
   state.plot2d.useIndexX = true;
   state.plot2d.style = "both";
   state.plot2d.xColumn = numericColumns.length ? numericColumns[0].index : null;
-
-  const defaultY = numericColumns.slice(0, 3).map((column) => column.index);
-  state.plot2d.yColumns = new Set(defaultY);
+  state.plot2d.yColumns = new Set(numericColumns.slice(0, 3).map((column) => column.index));
 
   state.plot3d.xColumn = numericColumns[0] ? numericColumns[0].index : null;
   state.plot3d.yColumn = numericColumns[1] ? numericColumns[1].index : state.plot3d.xColumn;
   state.plot3d.zColumn = numericColumns[2] ? numericColumns[2].index : state.plot3d.yColumn;
   state.plot3d.colorColumn = null;
   state.plot3d.sizeColumn = null;
+  state.plot3d.baseSize = 4;
+  state.plot3d.camera = { ...DEFAULT_3D_CAMERA };
 }
 
 function refreshSelectors() {
   const numericColumns = state.columns.filter((column) => column.type === "number");
 
+  renderDataControls();
   render2dSelectors(numericColumns);
   render3dSelectors(numericColumns);
 
   els.pointSize3d.value = String(state.plot3d.baseSize);
   els.pointSizeValue3d.textContent = String(state.plot3d.baseSize);
+}
+
+function renderDataControls() {
+  renderSortControls();
+  renderFilterControls();
+  renderStatsControls();
+}
+
+function renderSortControls() {
+  if (state.headers.length === 0) {
+    els.sortColumnSelect.innerHTML = "<option value=''>None</option>";
+    els.sortColumnSelect.disabled = true;
+    els.sortDirectionSelect.value = "none";
+    els.sortDirectionSelect.disabled = true;
+    els.clearSortBtn.disabled = true;
+    return;
+  }
+
+  const options = ["<option value=''>None</option>"];
+  state.columns.forEach((column) => {
+    options.push(`<option value="${column.index}">${escapeHtml(column.name)}</option>`);
+  });
+
+  els.sortColumnSelect.innerHTML = options.join("");
+  els.sortColumnSelect.value = state.dataOps.sortColumn === null ? "" : String(state.dataOps.sortColumn);
+  els.sortColumnSelect.disabled = false;
+  els.sortDirectionSelect.disabled = false;
+  els.sortDirectionSelect.value = state.dataOps.sortDirection;
+  els.clearSortBtn.disabled = false;
+}
+
+function renderFilterControls() {
+  if (state.headers.length === 0) {
+    els.filterControls.innerHTML = "<div class='muted'>No columns loaded.</div>";
+    els.clearFiltersBtn.disabled = true;
+    return;
+  }
+
+  const html = state.columns
+    .map((column) => {
+      const placeholder = column.type === "number" ? "contains / >10 / <=5 / 1..9" : "contains text";
+      const value = state.dataOps.filters[column.index] || "";
+
+      return `
+        <div class="filter-row">
+          <label for="filter-col-${column.index}">${escapeHtml(column.name)} (${column.type})</label>
+          <input
+            id="filter-col-${column.index}"
+            data-col-index="${column.index}"
+            value="${escapeHtml(value)}"
+            placeholder="${placeholder}"
+          />
+        </div>
+      `;
+    })
+    .join("");
+
+  els.filterControls.innerHTML = html;
+  els.clearFiltersBtn.disabled = false;
+}
+
+function renderStatsControls() {
+  if (state.headers.length === 0) {
+    els.statsColumnSelect.innerHTML = "<option value=''>None</option>";
+    els.statsColumnSelect.disabled = true;
+    return;
+  }
+
+  els.statsColumnSelect.innerHTML = state.columns
+    .map((column) => `<option value="${column.index}">${escapeHtml(column.name)} (${column.type})</option>`)
+    .join("");
+
+  if (state.dataOps.statsColumn === null || !state.columns[state.dataOps.statsColumn]) {
+    state.dataOps.statsColumn = state.columns[0].index;
+  }
+
+  els.statsColumnSelect.disabled = false;
+  els.statsColumnSelect.value = String(state.dataOps.statsColumn);
 }
 
 function render2dSelectors(numericColumns) {
@@ -284,8 +506,7 @@ function render2dSelectors(numericColumns) {
 
   els.yColumns2d.innerHTML = html;
 
-  const checkboxes = els.yColumns2d.querySelectorAll("input[type='checkbox']");
-  checkboxes.forEach((checkbox) => {
+  els.yColumns2d.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
       const col = Number(checkbox.dataset.colIndex);
       if (checkbox.checked) {
@@ -293,7 +514,7 @@ function render2dSelectors(numericColumns) {
       } else {
         state.plot2d.yColumns.delete(col);
       }
-      draw2D();
+      draw2D(buildViewRows());
     });
   });
 }
@@ -302,7 +523,6 @@ function render3dSelectors(numericColumns) {
   populateSelect(els.xSelect3d, numericColumns, state.plot3d.xColumn);
   populateSelect(els.ySelect3d, numericColumns, state.plot3d.yColumn);
   populateSelect(els.zSelect3d, numericColumns, state.plot3d.zColumn);
-
   populateOptionalSelect(els.colorSelect3d, numericColumns, state.plot3d.colorColumn);
   populateOptionalSelect(els.sizeSelect3d, numericColumns, state.plot3d.sizeColumn);
 }
@@ -341,110 +561,148 @@ function populateOptionalSelect(selectEl, columns, selectedValue) {
   selectEl.value = selectedValue === null ? "" : String(selectedValue);
 }
 
-function bind2dControls() {
-  els.xIndexMode.addEventListener("change", () => {
-    state.plot2d.useIndexX = els.xIndexMode.checked;
-    els.xSelect2d.disabled = state.plot2d.useIndexX;
-    draw2D();
-  });
-
-  els.xSelect2d.addEventListener("change", () => {
-    state.plot2d.xColumn = valueToNullableNumber(els.xSelect2d.value);
-    draw2D();
-  });
-
-  els.plotStyle2d.addEventListener("change", () => {
-    state.plot2d.style = els.plotStyle2d.value;
-    draw2D();
-  });
+function renderViews() {
+  const viewRows = buildViewRows();
+  renderTable(viewRows);
+  renderQuickStats(viewRows);
+  draw2D(viewRows);
+  draw3D(viewRows);
 }
 
-function bind3dControls() {
-  els.xSelect3d.addEventListener("change", () => {
-    state.plot3d.xColumn = valueToNullableNumber(els.xSelect3d.value);
-    draw3D();
-  });
+function buildViewRows() {
+  if (state.rows.length === 0) {
+    return [];
+  }
 
-  els.ySelect3d.addEventListener("change", () => {
-    state.plot3d.yColumn = valueToNullableNumber(els.ySelect3d.value);
-    draw3D();
-  });
+  let rows = state.rows
+    .map((values, index) => ({
+      values,
+      sourceIndex: index + 1,
+    }))
+    .filter((entry) => rowMatchesFilters(entry.values));
 
-  els.zSelect3d.addEventListener("change", () => {
-    state.plot3d.zColumn = valueToNullableNumber(els.zSelect3d.value);
-    draw3D();
-  });
+  if (state.dataOps.sortColumn !== null && state.dataOps.sortDirection !== "none") {
+    const columnIndex = state.dataOps.sortColumn;
+    const type = state.columns[columnIndex]?.type || "string";
+    const direction = state.dataOps.sortDirection === "desc" ? -1 : 1;
 
-  els.colorSelect3d.addEventListener("change", () => {
-    state.plot3d.colorColumn = valueToNullableNumber(els.colorSelect3d.value);
-    draw3D();
-  });
+    rows = rows.slice().sort((left, right) => {
+      const cmp = compareCellValues(left.values[columnIndex], right.values[columnIndex], type);
+      if (cmp !== 0) {
+        return cmp * direction;
+      }
+      return left.sourceIndex - right.sourceIndex;
+    });
+  }
 
-  els.sizeSelect3d.addEventListener("change", () => {
-    state.plot3d.sizeColumn = valueToNullableNumber(els.sizeSelect3d.value);
-    draw3D();
-  });
+  return rows;
+}
 
-  els.pointSize3d.addEventListener("input", () => {
-    state.plot3d.baseSize = Number(els.pointSize3d.value);
-    els.pointSizeValue3d.textContent = String(state.plot3d.baseSize);
-    draw3D();
-  });
-
-  els.reset3dView.addEventListener("click", () => {
-    state.plot3d.view.rotX = -0.45;
-    state.plot3d.view.rotY = 0.85;
-    state.plot3d.view.zoom = 1.15;
-    draw3D();
-  });
-
-  const canvas = els.canvas3d;
-
-  canvas.addEventListener("pointerdown", (event) => {
-    state.drag3d.active = true;
-    state.drag3d.lastX = event.clientX;
-    state.drag3d.lastY = event.clientY;
-    canvas.setPointerCapture(event.pointerId);
-  });
-
-  canvas.addEventListener("pointermove", (event) => {
-    if (!state.drag3d.active) {
-      return;
+function rowMatchesFilters(rowValues) {
+  for (let index = 0; index < state.columns.length; index += 1) {
+    const query = (state.dataOps.filters[index] || "").trim();
+    if (!query) {
+      continue;
     }
 
-    const dx = event.clientX - state.drag3d.lastX;
-    const dy = event.clientY - state.drag3d.lastY;
-    state.drag3d.lastX = event.clientX;
-    state.drag3d.lastY = event.clientY;
+    const type = state.columns[index].type;
+    const cell = rowValues[index] || "";
 
-    state.plot3d.view.rotY += dx * 0.01;
-    state.plot3d.view.rotX += dy * 0.01;
-    state.plot3d.view.rotX = clamp(state.plot3d.view.rotX, -Math.PI / 2 + 0.08, Math.PI / 2 - 0.08);
-    draw3D();
-  });
-
-  canvas.addEventListener("pointerup", (event) => {
-    state.drag3d.active = false;
-    canvas.releasePointerCapture(event.pointerId);
-  });
-
-  canvas.addEventListener("pointerleave", () => {
-    state.drag3d.active = false;
-  });
-
-  canvas.addEventListener(
-    "wheel",
-    (event) => {
-      event.preventDefault();
-      const zoomFactor = Math.exp(-event.deltaY * 0.0011);
-      state.plot3d.view.zoom = clamp(state.plot3d.view.zoom * zoomFactor, 0.35, 4.5);
-      draw3D();
-    },
-    { passive: false }
-  );
+    if (!cellMatchesFilter(cell, query, type)) {
+      return false;
+    }
+  }
+  return true;
 }
 
-function renderTable() {
+function cellMatchesFilter(cell, query, type) {
+  const text = String(cell);
+  const normalizedText = text.toLowerCase();
+  const normalizedQuery = query.toLowerCase();
+
+  if (type === "number") {
+    const numericFilter = parseNumericFilter(query);
+    const numericValue = toNumber(text);
+
+    if (numericFilter && numericValue !== null) {
+      return applyNumericFilter(numericValue, numericFilter);
+    }
+  }
+
+  return normalizedText.includes(normalizedQuery);
+}
+
+function parseNumericFilter(query) {
+  const raw = query.trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (raw.includes("..")) {
+    const parts = raw.split("..").map((part) => part.trim());
+    if (parts.length !== 2) {
+      return null;
+    }
+    const min = Number(parts[0]);
+    const max = Number(parts[1]);
+    if (Number.isFinite(min) && Number.isFinite(max)) {
+      return { kind: "range", min: Math.min(min, max), max: Math.max(min, max) };
+    }
+  }
+
+  const match = raw.match(/^(<=|>=|!=|=|<|>)(.+)$/);
+  if (match) {
+    const value = Number(match[2].trim());
+    if (Number.isFinite(value)) {
+      return { kind: "cmp", op: match[1], value };
+    }
+    return null;
+  }
+
+  const direct = Number(raw);
+  if (Number.isFinite(direct)) {
+    return { kind: "cmp", op: "=", value: direct };
+  }
+
+  return null;
+}
+
+function applyNumericFilter(value, filter) {
+  if (filter.kind === "range") {
+    return value >= filter.min && value <= filter.max;
+  }
+
+  if (filter.op === "<") return value < filter.value;
+  if (filter.op === "<=") return value <= filter.value;
+  if (filter.op === ">") return value > filter.value;
+  if (filter.op === ">=") return value >= filter.value;
+  if (filter.op === "!=") return value !== filter.value;
+  return value === filter.value;
+}
+
+function compareCellValues(left, right, type) {
+  if (type === "number") {
+    const leftNumeric = toNumber(left);
+    const rightNumeric = toNumber(right);
+
+    if (leftNumeric !== null && rightNumeric !== null) {
+      return leftNumeric - rightNumeric;
+    }
+    if (leftNumeric !== null) {
+      return -1;
+    }
+    if (rightNumeric !== null) {
+      return 1;
+    }
+  }
+
+  return String(left).localeCompare(String(right), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function renderTable(viewRows) {
   if (state.headers.length === 0) {
     els.tableContainer.classList.add("empty");
     els.tableContainer.innerHTML = '<div class="empty-message">Load a CSV to view rows and columns.</div>';
@@ -454,23 +712,32 @@ function renderTable() {
 
   els.tableContainer.classList.remove("empty");
 
-  const shown = state.rows.slice(0, MAX_TABLE_ROWS);
+  const shown = viewRows.slice(0, MAX_TABLE_ROWS);
   const headerCells = state.headers
     .map((header, index) => {
       const column = state.columns[index];
-      return `<th title="${escapeHtml(header)}"><div class="header-cell"><span>${escapeHtml(header)}</span><span class="type-chip ${column.type}">${column.type}</span></div></th>`;
+      const sortIndicator =
+        state.dataOps.sortColumn === index
+          ? state.dataOps.sortDirection === "desc"
+            ? "▼"
+            : state.dataOps.sortDirection === "asc"
+              ? "▲"
+              : ""
+          : "";
+
+      return `<th title="${escapeHtml(header)}"><div class="header-cell"><span>${escapeHtml(header)} ${sortIndicator}</span><span class="type-chip ${column.type}">${column.type}</span></div></th>`;
     })
     .join("");
 
   const bodyRows = shown
-    .map((row, rowIndex) => {
-      const cells = row
+    .map((entry) => {
+      const cells = entry.values
         .map((value) => {
           const safe = escapeHtml(value);
           return `<td title="${safe}">${safe}</td>`;
         })
         .join("");
-      return `<tr><th class="row-index">${(rowIndex + 1).toLocaleString()}</th>${cells}</tr>`;
+      return `<tr><th class="row-index">${entry.sourceIndex.toLocaleString()}</th>${cells}</tr>`;
     })
     .join("");
 
@@ -486,485 +753,402 @@ function renderTable() {
     </table>
   `;
 
-  const suffix = state.rows.length > MAX_TABLE_ROWS ? ` (showing first ${MAX_TABLE_ROWS.toLocaleString()})` : "";
-  els.tableMeta.textContent = `${state.rows.length.toLocaleString()} rows · ${state.headers.length.toLocaleString()} columns${suffix}`;
+  const filterCount = Object.values(state.dataOps.filters).filter((value) => value.trim() !== "").length;
+  const sortLabel =
+    state.dataOps.sortColumn !== null && state.dataOps.sortDirection !== "none"
+      ? ` · sorted by ${state.headers[state.dataOps.sortColumn]} (${state.dataOps.sortDirection})`
+      : "";
+
+  const visibleSuffix = viewRows.length > MAX_TABLE_ROWS ? ` (showing first ${MAX_TABLE_ROWS.toLocaleString()})` : "";
+  const filterLabel = filterCount > 0 ? ` · ${filterCount} active filter${filterCount === 1 ? "" : "s"}` : "";
+
+  els.tableMeta.textContent = `${viewRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} rows · ${state.headers.length.toLocaleString()} columns${filterLabel}${sortLabel}${visibleSuffix}`;
 }
 
-function draw2D() {
-  const { ctx, width, height } = prepCanvas(els.canvas2d);
-  paintCanvasBackground(ctx, width, height);
+function renderQuickStats(viewRows) {
+  if (state.headers.length === 0 || state.dataOps.statsColumn === null) {
+    els.quickStats.classList.add("muted");
+    els.quickStats.innerHTML = "Load a CSV to compute stats.";
+    return;
+  }
 
-  if (state.rows.length === 0 || state.headers.length === 0) {
-    drawCenteredMessage(ctx, width, height, "Load CSV data to render a chart.");
+  const colIndex = state.dataOps.statsColumn;
+  const column = state.columns[colIndex];
+  const values = viewRows.map((entry) => entry.values[colIndex]);
+
+  if (column.type === "number") {
+    const numericValues = values.map((value) => toNumber(value)).filter((value) => value !== null);
+    const missing = values.length - numericValues.length;
+
+    if (numericValues.length === 0) {
+      els.quickStats.classList.add("muted");
+      els.quickStats.innerHTML = "No numeric values in the current filtered view.";
+      return;
+    }
+
+    const sorted = numericValues.slice().sort((a, b) => a - b);
+    const sum = sorted.reduce((acc, value) => acc + value, 0);
+    const mean = sum / sorted.length;
+    const variance = sorted.reduce((acc, value) => acc + (value - mean) ** 2, 0) / sorted.length;
+    const median =
+      sorted.length % 2 === 1
+        ? sorted[(sorted.length - 1) / 2]
+        : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+
+    els.quickStats.classList.remove("muted");
+    els.quickStats.innerHTML = [
+      statItem("Rows in view", formatInt(values.length)),
+      statItem("Non-empty", formatInt(sorted.length)),
+      statItem("Missing", formatInt(missing)),
+      statItem("Min", formatNumber(sorted[0])),
+      statItem("Max", formatNumber(sorted[sorted.length - 1])),
+      statItem("Mean", formatNumber(mean)),
+      statItem("Median", formatNumber(median)),
+      statItem("Std dev", formatNumber(Math.sqrt(variance))),
+    ].join("");
+    return;
+  }
+
+  const normalized = values.map((value) => String(value || "").trim());
+  const present = normalized.filter((value) => value !== "");
+  const missing = normalized.length - present.length;
+  const frequencies = new Map();
+
+  present.forEach((value) => {
+    frequencies.set(value, (frequencies.get(value) || 0) + 1);
+  });
+
+  const topValues = [...frequencies.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([value, count]) => `${value} (${count})`)
+    .join(", ");
+
+  els.quickStats.classList.remove("muted");
+  els.quickStats.innerHTML = [
+    statItem("Rows in view", formatInt(values.length)),
+    statItem("Non-empty", formatInt(present.length)),
+    statItem("Missing", formatInt(missing)),
+    statItem("Unique", formatInt(frequencies.size)),
+    statItem("Top values", escapeHtml(topValues || "none")),
+  ].join("");
+}
+
+function statItem(label, value) {
+  return `<div class="stat-item"><span class="stat-key">${escapeHtml(label)}</span><span class="stat-val">${value}</span></div>`;
+}
+
+function draw2D(viewRows) {
+  if (!window.Plotly) {
+    setPlotUnavailable(els.plot2d, "Plotly asset not loaded. Run npm install to provision local plotly.min.js.");
+    els.legend2d.textContent = "Plotly unavailable.";
+    return;
+  }
+
+  if (state.headers.length === 0) {
+    renderEmptyPlot(els.plot2d, "Load CSV data to render a chart.");
     els.legend2d.textContent = "Select one or more numeric Y columns to plot.";
     return;
   }
 
   const yColumns = [...state.plot2d.yColumns];
   if (yColumns.length === 0) {
-    drawCenteredMessage(ctx, width, height, "Select at least one numeric Y column.");
+    renderEmptyPlot(els.plot2d, "Select at least one numeric Y column.");
     els.legend2d.textContent = "No Y columns selected.";
     return;
   }
 
   if (!state.plot2d.useIndexX && state.plot2d.xColumn === null) {
-    drawCenteredMessage(ctx, width, height, "Select an X column or use row index.");
+    renderEmptyPlot(els.plot2d, "Select an X column or use row index.");
     els.legend2d.textContent = "X axis is not configured.";
     return;
   }
 
-  const series = build2dSeries();
-  const activeSeries = series.filter((entry) => entry.points.length > 0);
+  const traces = [];
+  const styleMode =
+    state.plot2d.style === "line" ? "lines" : state.plot2d.style === "scatter" ? "markers" : "lines+markers";
 
-  if (activeSeries.length === 0) {
-    drawCenteredMessage(ctx, width, height, "No numeric rows available for current selections.");
+  yColumns.forEach((yColumn, seriesIndex) => {
+    const x = [];
+    const y = [];
+
+    viewRows.forEach((entry, rowIndex) => {
+      const yValue = toNumber(entry.values[yColumn]);
+      if (yValue === null) {
+        return;
+      }
+
+      const xValue = state.plot2d.useIndexX ? rowIndex + 1 : toNumber(entry.values[state.plot2d.xColumn]);
+      if (xValue === null) {
+        return;
+      }
+
+      x.push(xValue);
+      y.push(yValue);
+    });
+
+    if (x.length === 0) {
+      return;
+    }
+
+    traces.push({
+      x,
+      y,
+      name: state.headers[yColumn],
+      type: "scatter",
+      mode: styleMode,
+      marker: {
+        size: state.plot2d.style === "line" ? 0 : 5,
+        color: palette[seriesIndex % palette.length],
+      },
+      line: {
+        width: 2,
+        color: palette[seriesIndex % palette.length],
+      },
+    });
+  });
+
+  if (traces.length === 0) {
+    renderEmptyPlot(els.plot2d, "No numeric rows available for current selections.");
     els.legend2d.textContent = "No plottable values were found.";
     return;
   }
 
-  const domain = find2dDomain(activeSeries);
-  const margin = { top: 24, right: 24, bottom: 48, left: 62 };
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
-
-  draw2dGrid(ctx, margin, plotWidth, plotHeight, domain);
-
-  const mapX = (value) => margin.left + ((value - domain.minX) / domain.spanX) * plotWidth;
-  const mapY = (value) => margin.top + (1 - (value - domain.minY) / domain.spanY) * plotHeight;
-
-  const style = state.plot2d.style;
-
-  activeSeries.forEach((entry, seriesIndex) => {
-    const color = palette[seriesIndex % palette.length];
-
-    if (style === "line" || style === "both") {
-      ctx.beginPath();
-      entry.points.forEach((point, idx) => {
-        const px = mapX(point.x);
-        const py = mapY(point.y);
-        if (idx === 0) {
-          ctx.moveTo(px, py);
-        } else {
-          ctx.lineTo(px, py);
-        }
-      });
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.7;
-      ctx.stroke();
-    }
-
-    if (style === "scatter" || style === "both") {
-      entry.points.forEach((point) => {
-        const px = mapX(point.x);
-        const py = mapY(point.y);
-        ctx.beginPath();
-        ctx.arc(px, py, 2.4, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
-      });
-    }
-  });
-
   const xLabel = state.plot2d.useIndexX ? "Row index" : state.headers[state.plot2d.xColumn] || "X";
-  const yLabel = activeSeries.length === 1 ? activeSeries[0].name : "Selected Y columns";
 
-  ctx.fillStyle = "#0f172a";
-  ctx.font = "600 13px IBM Plex Sans, Segoe UI, sans-serif";
-  ctx.fillText(`${xLabel} vs ${yLabel}`, margin.left, 17);
+  window.Plotly.react(
+    els.plot2d,
+    traces,
+    {
+      margin: { t: 34, r: 24, b: 48, l: 60 },
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "#ffffff",
+      xaxis: { title: xLabel, zeroline: false, gridcolor: "#e2e8f0" },
+      yaxis: { title: "Y", zeroline: false, gridcolor: "#e2e8f0" },
+      legend: { orientation: "h", y: 1.15 },
+      hovermode: "closest",
+    },
+    plotConfig()
+  );
 
-  update2dLegend(activeSeries);
-}
-
-function build2dSeries() {
-  const yColumns = [...state.plot2d.yColumns];
-  const xColumn = state.plot2d.xColumn;
-
-  return yColumns.map((yColumn) => {
-    const points = [];
-
-    state.rows.forEach((row, rowIndex) => {
-      const yVal = toNumber(row[yColumn]);
-      if (yVal === null) {
-        return;
-      }
-
-      const xVal = state.plot2d.useIndexX ? rowIndex + 1 : toNumber(row[xColumn]);
-      if (xVal === null) {
-        return;
-      }
-
-      points.push({ x: xVal, y: yVal, row: rowIndex + 1 });
-    });
-
-    return {
-      index: yColumn,
-      name: state.headers[yColumn],
-      points,
-    };
-  });
-}
-
-function find2dDomain(series) {
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-
-  series.forEach((entry) => {
-    entry.points.forEach((point) => {
-      if (point.x < minX) minX = point.x;
-      if (point.x > maxX) maxX = point.x;
-      if (point.y < minY) minY = point.y;
-      if (point.y > maxY) maxY = point.y;
-    });
-  });
-
-  if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY)) {
-    return { minX: 0, maxX: 1, minY: 0, maxY: 1, spanX: 1, spanY: 1 };
-  }
-
-  if (minX === maxX) {
-    minX -= 1;
-    maxX += 1;
-  }
-  if (minY === maxY) {
-    minY -= 1;
-    maxY += 1;
-  }
-
-  const padX = (maxX - minX) * 0.04;
-  const padY = (maxY - minY) * 0.06;
-
-  minX -= padX;
-  maxX += padX;
-  minY -= padY;
-  maxY += padY;
-
-  return {
-    minX,
-    maxX,
-    minY,
-    maxY,
-    spanX: maxX - minX,
-    spanY: maxY - minY,
-  };
-}
-
-function draw2dGrid(ctx, margin, width, height, domain) {
-  const ticks = 6;
-
-  ctx.strokeStyle = "#dbe3ef";
-  ctx.lineWidth = 1;
-  ctx.fillStyle = "#64748b";
-  ctx.font = "12px IBM Plex Sans, Segoe UI, sans-serif";
-
-  for (let i = 0; i <= ticks; i += 1) {
-    const t = i / ticks;
-    const x = margin.left + t * width;
-    const y = margin.top + t * height;
-
-    ctx.beginPath();
-    ctx.moveTo(x, margin.top);
-    ctx.lineTo(x, margin.top + height);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(margin.left, y);
-    ctx.lineTo(margin.left + width, y);
-    ctx.stroke();
-
-    const xv = domain.minX + t * domain.spanX;
-    const yv = domain.maxY - t * domain.spanY;
-
-    ctx.textAlign = "center";
-    ctx.fillText(formatTick(xv), x, margin.top + height + 18);
-
-    ctx.textAlign = "right";
-    ctx.fillText(formatTick(yv), margin.left - 8, y + 4);
-  }
-
-  ctx.strokeStyle = "#94a3b8";
-  ctx.lineWidth = 1.2;
-  ctx.strokeRect(margin.left, margin.top, width, height);
-}
-
-function update2dLegend(series) {
-  const totalPoints = series.reduce((sum, entry) => sum + entry.points.length, 0);
-
-  const items = series
-    .map((entry, idx) => {
-      const color = palette[idx % palette.length];
-      return `<span class="legend-item"><span class="swatch" style="background:${color}"></span>${escapeHtml(
-        entry.name
-      )} (${entry.points.length.toLocaleString()})</span>`;
-    })
+  const totalPoints = traces.reduce((sum, trace) => sum + trace.x.length, 0);
+  const items = traces
+    .map(
+      (trace, idx) =>
+        `<span class="legend-item"><span class="swatch" style="background:${palette[idx % palette.length]}"></span>${escapeHtml(
+          trace.name
+        )} (${trace.x.length.toLocaleString()})</span>`
+    )
     .join("");
 
-  els.legend2d.innerHTML = `<div>${series.length.toLocaleString()} series · ${totalPoints.toLocaleString()} points</div><div class="legend-grid">${items}</div>`;
+  els.legend2d.innerHTML = `<div>${traces.length.toLocaleString()} series · ${totalPoints.toLocaleString()} points</div><div class="legend-grid">${items}</div>`;
 }
 
-function draw3D() {
-  const { ctx, width, height } = prepCanvas(els.canvas3d);
-  paintCanvasBackground(ctx, width, height);
+function draw3D(viewRows) {
+  if (!window.Plotly) {
+    setPlotUnavailable(els.plot3d, "Plotly asset not loaded. Run npm install to provision local plotly.min.js.");
+    els.meta3d.textContent = "Plotly unavailable.";
+    return;
+  }
 
-  if (state.rows.length === 0 || state.headers.length === 0) {
-    drawCenteredMessage(ctx, width, height, "Load CSV data to render a 3D view.");
+  if (state.headers.length === 0) {
+    renderEmptyPlot(els.plot3d, "Load CSV data to render a 3D view.", true);
     els.meta3d.textContent = "Select X, Y, and Z numeric columns.";
     return;
   }
 
   if (state.plot3d.xColumn === null || state.plot3d.yColumn === null || state.plot3d.zColumn === null) {
-    drawCenteredMessage(ctx, width, height, "Select numeric X, Y, and Z columns.");
+    renderEmptyPlot(els.plot3d, "Select numeric X, Y, and Z columns.", true);
     els.meta3d.textContent = "3D axes are not fully configured.";
     return;
   }
 
-  const built = build3dPoints();
+  const x = [];
+  const y = [];
+  const z = [];
+  const colorRaw = [];
+  const sizeRaw = [];
 
-  if (built.points.length === 0) {
-    drawCenteredMessage(ctx, width, height, "No numeric rows available for selected axes.");
+  const hasColor = state.plot3d.colorColumn !== null;
+  const hasSize = state.plot3d.sizeColumn !== null;
+
+  viewRows.forEach((entry) => {
+    const xValue = toNumber(entry.values[state.plot3d.xColumn]);
+    const yValue = toNumber(entry.values[state.plot3d.yColumn]);
+    const zValue = toNumber(entry.values[state.plot3d.zColumn]);
+
+    if (xValue === null || yValue === null || zValue === null) {
+      return;
+    }
+
+    x.push(xValue);
+    y.push(yValue);
+    z.push(zValue);
+
+    if (hasColor) {
+      colorRaw.push(toNumber(entry.values[state.plot3d.colorColumn]));
+    }
+    if (hasSize) {
+      sizeRaw.push(toNumber(entry.values[state.plot3d.sizeColumn]));
+    }
+  });
+
+  if (x.length === 0) {
+    renderEmptyPlot(els.plot3d, "No numeric rows available for selected axes.", true);
     els.meta3d.textContent = "No plottable 3D points were found.";
     return;
   }
 
-  const plotRect = {
-    left: 50,
-    top: 30,
-    width: width - 100,
-    height: height - 70,
+  const marker = {
+    opacity: 0.85,
+    size: state.plot3d.baseSize,
+    color: "#0f766e",
   };
 
-  const centerX = plotRect.left + plotRect.width / 2;
-  const centerY = plotRect.top + plotRect.height / 2;
-  const focal = Math.min(plotRect.width, plotRect.height) * 0.52 * state.plot3d.view.zoom;
-  const cameraZ = 3.15;
-
-  draw3dAxes(ctx, centerX, centerY, focal, cameraZ);
-
-  const projected = built.points
-    .map((point) => {
-      const rotated = rotatePoint(point.x, point.y, point.z, state.plot3d.view.rotX, state.plot3d.view.rotY);
-      const depth = cameraZ - rotated.z;
-      if (depth <= 0.12) {
-        return null;
-      }
-
-      const scale = focal / depth;
-      return {
-        sx: centerX + rotated.x * scale,
-        sy: centerY - rotated.y * scale,
-        depth,
-        colorValue: point.colorValue,
-        sizeValue: point.sizeValue,
+  if (hasColor) {
+    const validColors = colorRaw.filter((value) => value !== null);
+    if (validColors.length > 0) {
+      const fallback = validColors[0];
+      marker.color = colorRaw.map((value) => (value === null ? fallback : value));
+      marker.colorscale = "Viridis";
+      marker.colorbar = {
+        title: state.headers[state.plot3d.colorColumn],
+        thickness: 10,
       };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.depth - a.depth);
+      marker.showscale = true;
+    }
+  }
 
-  const colorDomain = built.colorDomain;
-  const sizeDomain = built.sizeDomain;
+  if (hasSize) {
+    const validSizes = sizeRaw.filter((value) => value !== null);
+    if (validSizes.length > 0) {
+      const min = Math.min(...validSizes);
+      const max = Math.max(...validSizes);
+      const span = max - min || 1;
+      const base = state.plot3d.baseSize;
 
-  projected.forEach((point) => {
-    const color = pointColor(point.colorValue, colorDomain);
-    const radius = pointRadius(point.sizeValue, sizeDomain, state.plot3d.baseSize, point.depth);
+      marker.size = sizeRaw.map((value) => {
+        if (value === null) {
+          return base;
+        }
+        const normalized = (value - min) / span;
+        return clamp(base * (0.65 + normalized * 2), 1, 18);
+      });
+    }
+  }
 
-    ctx.beginPath();
-    ctx.arc(point.sx, point.sy, radius, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
+  const trace = {
+    type: "scatter3d",
+    mode: "markers",
+    x,
+    y,
+    z,
+    marker,
+  };
 
-    ctx.strokeStyle = "rgba(15, 23, 42, 0.15)";
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-  });
+  const layout = {
+    margin: { t: 20, r: 16, b: 12, l: 8 },
+    paper_bgcolor: "rgba(0,0,0,0)",
+    scene: {
+      xaxis: { title: state.headers[state.plot3d.xColumn], gridcolor: "#e2e8f0" },
+      yaxis: { title: state.headers[state.plot3d.yColumn], gridcolor: "#e2e8f0" },
+      zaxis: { title: state.headers[state.plot3d.zColumn], gridcolor: "#e2e8f0" },
+      camera: state.plot3d.camera || { ...DEFAULT_3D_CAMERA },
+    },
+  };
 
-  const labels = [state.headers[state.plot3d.xColumn], state.headers[state.plot3d.yColumn], state.headers[state.plot3d.zColumn]];
+  window.Plotly.react(els.plot3d, [trace], layout, plotConfig());
+  bind3dRelayoutHandler();
+
   const colorLabel = state.plot3d.colorColumn === null ? "none" : state.headers[state.plot3d.colorColumn];
   const sizeLabel = state.plot3d.sizeColumn === null ? "none" : state.headers[state.plot3d.sizeColumn];
 
-  els.meta3d.textContent = `Points: ${projected.length.toLocaleString()} · Axes: ${labels.join(", ")} · Color: ${colorLabel} · Size: ${sizeLabel}`;
+  els.meta3d.textContent = `Points: ${x.length.toLocaleString()} · Axes: ${state.headers[state.plot3d.xColumn]}, ${state.headers[state.plot3d.yColumn]}, ${state.headers[state.plot3d.zColumn]} · Color: ${colorLabel} · Size: ${sizeLabel}`;
 }
 
-function build3dPoints() {
-  const points = [];
+function bind3dRelayoutHandler() {
+  if (state.plot3d.relayoutBound) {
+    return;
+  }
+  if (typeof els.plot3d.on !== "function") {
+    return;
+  }
 
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  let minZ = Infinity;
-  let maxZ = -Infinity;
-
-  let minColor = Infinity;
-  let maxColor = -Infinity;
-  let minSize = Infinity;
-  let maxSize = -Infinity;
-
-  state.rows.forEach((row) => {
-    const rawX = toNumber(row[state.plot3d.xColumn]);
-    const rawY = toNumber(row[state.plot3d.yColumn]);
-    const rawZ = toNumber(row[state.plot3d.zColumn]);
-
-    if (rawX === null || rawY === null || rawZ === null) {
-      return;
+  els.plot3d.on("plotly_relayout", (eventData) => {
+    if (eventData && eventData["scene.camera"]) {
+      state.plot3d.camera = eventData["scene.camera"];
     }
-
-    const colorValue =
-      state.plot3d.colorColumn === null ? null : toNumber(row[state.plot3d.colorColumn]);
-    const sizeValue = state.plot3d.sizeColumn === null ? null : toNumber(row[state.plot3d.sizeColumn]);
-
-    if (rawX < minX) minX = rawX;
-    if (rawX > maxX) maxX = rawX;
-    if (rawY < minY) minY = rawY;
-    if (rawY > maxY) maxY = rawY;
-    if (rawZ < minZ) minZ = rawZ;
-    if (rawZ > maxZ) maxZ = rawZ;
-
-    if (colorValue !== null) {
-      if (colorValue < minColor) minColor = colorValue;
-      if (colorValue > maxColor) maxColor = colorValue;
-    }
-
-    if (sizeValue !== null) {
-      if (sizeValue < minSize) minSize = sizeValue;
-      if (sizeValue > maxSize) maxSize = sizeValue;
-    }
-
-    points.push({ rawX, rawY, rawZ, colorValue, sizeValue });
   });
 
-  const spanX = maxX - minX || 1;
-  const spanY = maxY - minY || 1;
-  const spanZ = maxZ - minZ || 1;
+  state.plot3d.relayoutBound = true;
+}
 
-  const normalized = points.map((point) => ({
-    x: ((point.rawX - minX) / spanX) * 2 - 1,
-    y: ((point.rawY - minY) / spanY) * 2 - 1,
-    z: ((point.rawZ - minZ) / spanZ) * 2 - 1,
-    colorValue: point.colorValue,
-    sizeValue: point.sizeValue,
-  }));
-
+function plotConfig() {
   return {
-    points: normalized,
-    colorDomain: Number.isFinite(minColor) && Number.isFinite(maxColor) ? { min: minColor, max: maxColor } : null,
-    sizeDomain: Number.isFinite(minSize) && Number.isFinite(maxSize) ? { min: minSize, max: maxSize } : null,
+    responsive: true,
+    displaylogo: false,
+    modeBarButtonsToRemove: ["select2d", "lasso2d"],
   };
 }
 
-function draw3dAxes(ctx, centerX, centerY, focal, cameraZ) {
-  const axes = [
-    { from: [-1, 0, 0], to: [1, 0, 0], color: "#dc2626", label: "X" },
-    { from: [0, -1, 0], to: [0, 1, 0], color: "#16a34a", label: "Y" },
-    { from: [0, 0, -1], to: [0, 0, 1], color: "#2563eb", label: "Z" },
-  ];
+function renderEmptyPlot(target, message, is3d = false) {
+  if (!window.Plotly) {
+    setPlotUnavailable(target, message);
+    return;
+  }
 
-  axes.forEach((axis) => {
-    const start = projectAxisPoint(axis.from[0], axis.from[1], axis.from[2], centerX, centerY, focal, cameraZ);
-    const end = projectAxisPoint(axis.to[0], axis.to[1], axis.to[2], centerX, centerY, focal, cameraZ);
+  const layout = {
+    margin: { t: 20, r: 20, b: 20, l: 20 },
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "#ffffff",
+    annotations: [
+      {
+        text: message,
+        showarrow: false,
+        x: 0.5,
+        y: 0.5,
+        xref: "paper",
+        yref: "paper",
+        font: { color: "#64748b", size: 14 },
+      },
+    ],
+  };
 
-    if (!start || !end) {
-      return;
-    }
+  if (is3d) {
+    layout.scene = {
+      xaxis: { visible: false },
+      yaxis: { visible: false },
+      zaxis: { visible: false },
+    };
+  } else {
+    layout.xaxis = { visible: false };
+    layout.yaxis = { visible: false };
+  }
 
-    ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
-    ctx.strokeStyle = axis.color;
-    ctx.lineWidth = 1.8;
-    ctx.stroke();
+  window.Plotly.react(target, [], layout, plotConfig());
+}
 
-    ctx.fillStyle = axis.color;
-    ctx.font = "700 12px IBM Plex Sans, Segoe UI, sans-serif";
-    ctx.fillText(axis.label, end.x + 4, end.y - 4);
+function setPlotUnavailable(target, message) {
+  target.innerHTML = `<div class="plot-message">${escapeHtml(message)}</div>`;
+}
+
+function formatNumber(value) {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000 || (abs > 0 && abs < 0.001)) {
+    return value.toExponential(3);
+  }
+
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 6,
   });
 }
 
-function projectAxisPoint(x, y, z, centerX, centerY, focal, cameraZ) {
-  const rotated = rotatePoint(x, y, z, state.plot3d.view.rotX, state.plot3d.view.rotY);
-  const depth = cameraZ - rotated.z;
-  if (depth <= 0.12) {
-    return null;
-  }
-  const scale = focal / depth;
-  return {
-    x: centerX + rotated.x * scale,
-    y: centerY - rotated.y * scale,
-  };
-}
-
-function rotatePoint(x, y, z, rotX, rotY) {
-  const cx = Math.cos(rotX);
-  const sx = Math.sin(rotX);
-  const cy = Math.cos(rotY);
-  const sy = Math.sin(rotY);
-
-  const y1 = y * cx - z * sx;
-  const z1 = y * sx + z * cx;
-
-  const x2 = x * cy + z1 * sy;
-  const z2 = -x * sy + z1 * cy;
-
-  return { x: x2, y: y1, z: z2 };
-}
-
-function pointColor(value, domain) {
-  if (value === null || !domain || domain.max === domain.min) {
-    return "rgba(15, 118, 110, 0.8)";
-  }
-
-  const t = clamp((value - domain.min) / (domain.max - domain.min), 0, 1);
-  const hue = 216 - t * 216;
-  return `hsla(${hue}, 80%, 53%, 0.84)`;
-}
-
-function pointRadius(value, domain, baseSize, depth) {
-  let sizeScale = 1;
-  if (value !== null && domain && domain.max !== domain.min) {
-    sizeScale = 0.65 + ((value - domain.min) / (domain.max - domain.min)) * 1.6;
-  }
-
-  const perspectiveScale = clamp(2.5 / depth, 0.45, 1.8);
-  return clamp(baseSize * sizeScale * perspectiveScale, 1, 18);
-}
-
-function paintCanvasBackground(ctx, width, height) {
-  const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "#ffffff");
-  gradient.addColorStop(1, "#f8fafc");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
-}
-
-function drawCenteredMessage(ctx, width, height, message) {
-  ctx.fillStyle = "#64748b";
-  ctx.font = "500 14px IBM Plex Sans, Segoe UI, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(message, width / 2, height / 2);
-  ctx.textAlign = "left";
-}
-
-function prepCanvas(canvas) {
-  const rect = canvas.getBoundingClientRect();
-  const pixelRatio = window.devicePixelRatio || 1;
-  const displayWidth = Math.max(300, Math.floor(rect.width));
-  const displayHeight = Math.max(240, Math.floor(rect.height));
-  const targetWidth = Math.floor(displayWidth * pixelRatio);
-  const targetHeight = Math.floor(displayHeight * pixelRatio);
-
-  if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
-  }
-
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-
-  return {
-    ctx,
-    width: displayWidth,
-    height: displayHeight,
-  };
+function formatInt(value) {
+  return Number(value).toLocaleString();
 }
 
 function setStatus(text, kind) {

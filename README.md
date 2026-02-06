@@ -25,8 +25,12 @@ A local-first web app for CSV exploration and visualization.
 
 - Drag/drop CSV ingest (or file picker)
 - Spreadsheet-style data view with inferred column types
-- 2D plot tab with selectable series and style
-- 3D plot tab with axis, color, and size selectors
+- Grid data operations
+  - Per-column filters (text contains and numeric operators like `>`, `>=`, `..`)
+  - Column sort (ascending/descending)
+  - Quick stats panel on filtered rows
+- Plotly-powered 2D plot tab with selectable series and style
+- Plotly-powered 3D plot tab with axis, color, and size selectors
 - Fully local runtime: no backend and no data upload
 
 ## Run locally
@@ -47,6 +51,8 @@ Install dev dependencies:
 npm install
 npx playwright install --with-deps chromium
 ```
+
+`npm install` also provisions a local Plotly bundle at `web/vendor/plotly.min.js`, so runtime charting does not need internet access.
 
 Run all tests:
 
