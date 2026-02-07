@@ -235,7 +235,6 @@ body {
 
 .data-table {
   width: max-content;
-  min-width: 100%;
   border-collapse: collapse;
   table-layout: auto;
   font-size: 0.9rem;
@@ -256,8 +255,8 @@ body {
   border-right: 1px solid #edf2f7;
   border-bottom: 1px solid #edf2f7;
   padding: 6px 8px;
-  min-width: 140px;
-  max-width: 260px;
+  min-width: 0;
+  max-width: none;
 }
 
 .data-table td {
@@ -272,9 +271,9 @@ body {
 }
 
 .row-index {
-  width: 68px;
-  min-width: 68px;
-  max-width: 68px;
+  width: 1%;
+  min-width: 0;
+  max-width: none;
   text-align: right;
   color: var(--muted);
   background: #fbfdff;
