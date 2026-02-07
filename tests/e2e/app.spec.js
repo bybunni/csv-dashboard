@@ -86,6 +86,21 @@ test("supports comma-compound filters in Data and plot subfilters", async ({ pag
   await expect(page.locator("#legend2d")).toContainText("Using 1 of 2 filtered rows");
 });
 
+test("hides columns from the table and plotting selectors", async ({ page }) => {
+  await loadFixture(page);
+
+  await expect(page.locator("#columnVisibilityMeta")).toContainText("5 of 5 visible");
+  await page.uncheck("#visibility-col-1");
+
+  await expect(page.locator("#columnVisibilityMeta")).toContainText("4 of 5 visible");
+  await expect(page.locator("#tableContainer thead th")).toHaveCount(5);
+  await expect(page.locator("#tableContainer thead")).not.toContainText("temp_c");
+
+  await page.click("button[data-tab='plot2d']");
+  await expect(page.locator("#yColumns2d .checklist-item")).toHaveCount(4);
+  await expect(page.locator("#yColumns2d")).not.toContainText("temp_c");
+});
+
 test("applies YAML preset configs from a user-selected directory", async ({ page }) => {
   await loadFixture(page);
 

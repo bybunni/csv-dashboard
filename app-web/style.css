@@ -351,7 +351,7 @@ body {
 }
 
 .controls-data {
-  grid-template-columns: 220px minmax(280px, 1.3fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(220px, 260px) 220px minmax(280px, 1.3fr) minmax(280px, 1fr);
 }
 
 .control-block {
@@ -401,6 +401,12 @@ input[type="text"],
 .secondary-btn {
   cursor: pointer;
   width: fit-content;
+}
+
+.inline-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .secondary-btn:hover {

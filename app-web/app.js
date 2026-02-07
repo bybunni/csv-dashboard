@@ -38,6 +38,8 @@ const state = {
   tab: "data",
   dataOps: {
     filters: {},
+    columnVisibility: {},
+    columnVisibilityQuery: "",
     sortColumn: null,
     sortDirection: "none",
     statsColumn: null,
@@ -91,6 +93,11 @@ const els = {
   },
   tableContainer: document.getElementById("tableContainer"),
   tableMeta: document.getElementById("tableMeta"),
+  columnVisibilitySearch: document.getElementById("columnVisibilitySearch"),
+  showAllColumnsBtn: document.getElementById("showAllColumnsBtn"),
+  hideAllColumnsBtn: document.getElementById("hideAllColumnsBtn"),
+  columnVisibilityMeta: document.getElementById("columnVisibilityMeta"),
+  columnVisibilityControls: document.getElementById("columnVisibilityControls"),
   sortColumnSelect: document.getElementById("sortColumnSelect"),
   sortDirectionSelect: document.getElementById("sortDirectionSelect"),
   clearSortBtn: document.getElementById("clearSortBtn"),
@@ -152,13 +159,14 @@ function init() {
 
 function bindExportControl() {
   els.exportBtn.addEventListener("click", () => {
+    const visibleColumns = getVisibleColumns();
     const viewRows = getExportRowsForActiveTab();
-    if (viewRows.length === 0 || state.headers.length === 0) {
+    if (viewRows.length === 0 || visibleColumns.length === 0) {
       setStatus("No rows available to export for the current view.", "warn");
       return;
     }
 
-    const csv = serializeRowsToCsv(state.headers, viewRows);
+    const csv = serializeRowsToCsv(visibleColumns, viewRows);
     const fileName = getExportFileName();
     downloadCsv(fileName, csv);
     setStatus(`Exported ${viewRows.length.toLocaleString()} row(s) to ${fileName}.`, "ok");
@@ -251,6 +259,44 @@ function bindDropZone() {
 }
 
 function bindDataControls() {
+  els.columnVisibilitySearch.addEventListener("input", () => {
+    state.dataOps.columnVisibilityQuery = els.columnVisibilitySearch.value;
+    renderColumnVisibilityControls();
+  });
+
+  els.showAllColumnsBtn.addEventListener("click", () => {
+    state.columns.forEach((column) => {
+      state.dataOps.columnVisibility[column.index] = true;
+    });
+    applyColumnVisibilityEffects();
+    refreshSelectors();
+    renderViews();
+  });
+
+  els.hideAllColumnsBtn.addEventListener("click", () => {
+    state.columns.forEach((column) => {
+      state.dataOps.columnVisibility[column.index] = false;
+    });
+    applyColumnVisibilityEffects();
+    refreshSelectors();
+    renderViews();
+  });
+
+  els.columnVisibilityControls.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+      return;
+    }
+    const colIndex = valueToNullableNumber(target.dataset.colIndex);
+    if (colIndex === null || !state.columns[colIndex]) {
+      return;
+    }
+    state.dataOps.columnVisibility[colIndex] = target.checked;
+    applyColumnVisibilityEffects();
+    refreshSelectors();
+    renderViews();
+  });
+
   els.sortColumnSelect.addEventListener("change", () => {
     state.dataOps.sortColumn = valueToNullableNumber(els.sortColumnSelect.value);
     renderViews();
@@ -454,6 +500,8 @@ function clearLoadedData() {
   state.columns = [];
 
   state.dataOps.filters = {};
+  state.dataOps.columnVisibility = {};
+  state.dataOps.columnVisibilityQuery = "";
   state.dataOps.sortColumn = null;
   state.dataOps.sortDirection = "none";
   state.dataOps.statsColumn = null;
@@ -654,6 +702,7 @@ function normalizePresetConfig(rawPreset) {
     name: String(rawPreset.name || ""),
     data: {
       filters: parseFiltersMap(data.filters),
+      visibleColumns: Array.isArray(data.visibleColumns) ? data.visibleColumns.map((item) => String(item)) : null,
       sort: {
         column: sort.column === null || sort.column === undefined ? null : String(sort.column),
         direction: ["none", "asc", "desc"].includes(sortDirection) ? sortDirection : "none",
@@ -740,6 +789,18 @@ function applyPresetConfig(preset) {
     state.dataOps.filters[index] = String(query || "");
   });
 
+  if (Array.isArray(preset.data.visibleColumns)) {
+    Object.keys(state.dataOps.columnVisibility).forEach((key) => {
+      state.dataOps.columnVisibility[key] = false;
+    });
+    preset.data.visibleColumns.forEach((columnName) => {
+      const index = resolveColumnIndexByName(columnName, missingColumns);
+      if (index !== null) {
+        state.dataOps.columnVisibility[index] = true;
+      }
+    });
+  }
+
   state.dataOps.sortDirection = preset.data.sort.direction;
   state.dataOps.sortColumn = resolveColumnIndexByName(preset.data.sort.column, missingColumns);
   if (state.dataOps.sortColumn === null) {
@@ -773,6 +834,8 @@ function applyPresetConfig(preset) {
   state.plot3d.subFilterColumn = resolveColumnIndexByName(preset.plot3d.subFilter.column, missingColumns);
   state.plot3d.subFilterQuery = preset.plot3d.subFilter.query;
 
+  applyColumnVisibilityEffects();
+
   return [...missingColumns];
 }
 
@@ -796,11 +859,16 @@ function buildCurrentPresetConfig() {
     .map((index) => state.headers[index])
     .filter((name) => Boolean(name));
 
+  const visibleColumns = getVisibleColumns()
+    .sort((left, right) => left.index - right.index)
+    .map((column) => column.name);
+
   return {
     version: 1,
     name: String(els.savePresetName.value || "").trim() || defaultPresetName(),
     data: {
       filters,
+      visibleColumns,
       sort: {
         column: state.dataOps.sortColumn === null ? null : state.headers[state.dataOps.sortColumn] || null,
         direction: state.dataOps.sortDirection,
@@ -895,10 +963,14 @@ function saveCurrentPresetYaml() {
 
 function initializeDataOps() {
   const filters = {};
+  const columnVisibility = {};
   state.headers.forEach((_, index) => {
     filters[index] = "";
+    columnVisibility[index] = true;
   });
   state.dataOps.filters = filters;
+  state.dataOps.columnVisibility = columnVisibility;
+  state.dataOps.columnVisibilityQuery = "";
   state.dataOps.sortColumn = null;
   state.dataOps.sortDirection = "none";
 
@@ -927,12 +999,84 @@ function initializePlotSelections() {
   state.plot3d.camera = { ...DEFAULT_3D_CAMERA };
 }
 
+function isColumnVisible(index) {
+  return state.dataOps.columnVisibility[index] !== false;
+}
+
+function getVisibleColumns() {
+  return state.columns.filter((column) => isColumnVisible(column.index));
+}
+
+function applyColumnVisibilityEffects() {
+  const visibleColumns = getVisibleColumns();
+  const visibleIndexSet = new Set(visibleColumns.map((column) => column.index));
+  const visibleNumeric = visibleColumns.filter((column) => column.type === "number");
+
+  Object.keys(state.dataOps.filters).forEach((key) => {
+    const index = Number(key);
+    if (!visibleIndexSet.has(index)) {
+      state.dataOps.filters[key] = "";
+    }
+  });
+
+  if (state.dataOps.sortColumn !== null && !visibleIndexSet.has(state.dataOps.sortColumn)) {
+    state.dataOps.sortColumn = null;
+    state.dataOps.sortDirection = "none";
+  }
+
+  if (state.dataOps.statsColumn !== null && !visibleIndexSet.has(state.dataOps.statsColumn)) {
+    state.dataOps.statsColumn = visibleColumns[0] ? visibleColumns[0].index : null;
+  }
+
+  if (state.plot2d.subFilterColumn !== null && !visibleIndexSet.has(state.plot2d.subFilterColumn)) {
+    state.plot2d.subFilterColumn = null;
+    state.plot2d.subFilterQuery = "";
+  }
+
+  if (state.plot3d.subFilterColumn !== null && !visibleIndexSet.has(state.plot3d.subFilterColumn)) {
+    state.plot3d.subFilterColumn = null;
+    state.plot3d.subFilterQuery = "";
+  }
+
+  if (state.plot2d.xColumn !== null && !visibleIndexSet.has(state.plot2d.xColumn)) {
+    state.plot2d.xColumn = visibleNumeric[0] ? visibleNumeric[0].index : null;
+  }
+
+  state.plot2d.yColumns = new Set(
+    [...state.plot2d.yColumns].filter(
+      (index) => visibleIndexSet.has(index) && state.columns[index] && state.columns[index].type === "number"
+    )
+  );
+
+  const fallback3dX = visibleNumeric[0] ? visibleNumeric[0].index : null;
+  const fallback3dY = visibleNumeric[1] ? visibleNumeric[1].index : fallback3dX;
+  const fallback3dZ = visibleNumeric[2] ? visibleNumeric[2].index : fallback3dY;
+
+  if (state.plot3d.xColumn === null || !visibleIndexSet.has(state.plot3d.xColumn)) {
+    state.plot3d.xColumn = fallback3dX;
+  }
+  if (state.plot3d.yColumn === null || !visibleIndexSet.has(state.plot3d.yColumn)) {
+    state.plot3d.yColumn = fallback3dY;
+  }
+  if (state.plot3d.zColumn === null || !visibleIndexSet.has(state.plot3d.zColumn)) {
+    state.plot3d.zColumn = fallback3dZ;
+  }
+
+  if (state.plot3d.colorColumn !== null && !visibleIndexSet.has(state.plot3d.colorColumn)) {
+    state.plot3d.colorColumn = null;
+  }
+  if (state.plot3d.sizeColumn !== null && !visibleIndexSet.has(state.plot3d.sizeColumn)) {
+    state.plot3d.sizeColumn = null;
+  }
+}
+
 function refreshSelectors() {
-  const numericColumns = state.columns.filter((column) => column.type === "number");
+  const visibleColumns = getVisibleColumns();
+  const numericColumns = visibleColumns.filter((column) => column.type === "number");
 
   renderPresetControls();
   renderDataControls();
-  renderPlotSubfilterControls();
+  renderPlotSubfilterControls(visibleColumns);
   render2dSelectors(numericColumns);
   render3dSelectors(numericColumns);
 
@@ -941,19 +1085,62 @@ function refreshSelectors() {
 }
 
 function renderDataControls() {
+  renderColumnVisibilityControls();
   renderSortControls();
   renderFilterControls();
   renderStatsControls();
 }
 
-function renderPlotSubfilterControls() {
-  populateColumnSelectWithNone(els.subFilterColumn2d, state.columns, state.plot2d.subFilterColumn);
-  populateColumnSelectWithNone(els.subFilterColumn3d, state.columns, state.plot3d.subFilterColumn);
+function renderColumnVisibilityControls() {
+  const total = state.columns.length;
+  if (total === 0) {
+    els.columnVisibilitySearch.value = "";
+    els.columnVisibilitySearch.disabled = true;
+    els.showAllColumnsBtn.disabled = true;
+    els.hideAllColumnsBtn.disabled = true;
+    els.columnVisibilityMeta.textContent = "No columns loaded.";
+    els.columnVisibilityControls.innerHTML = "<div class='muted'>No columns loaded.</div>";
+    return;
+  }
+
+  const query = String(state.dataOps.columnVisibilityQuery || "").trim().toLowerCase();
+  const visibleCount = state.columns.filter((column) => isColumnVisible(column.index)).length;
+  const filteredColumns = state.columns.filter((column) => column.name.toLowerCase().includes(query));
+
+  els.columnVisibilitySearch.disabled = false;
+  els.columnVisibilitySearch.value = state.dataOps.columnVisibilityQuery;
+  els.showAllColumnsBtn.disabled = visibleCount === total;
+  els.hideAllColumnsBtn.disabled = visibleCount === 0;
+
+  const countLabel = `${visibleCount.toLocaleString()} of ${total.toLocaleString()} visible`;
+  if (filteredColumns.length === 0) {
+    els.columnVisibilityMeta.textContent = `${countLabel} · no columns match search`;
+    els.columnVisibilityControls.innerHTML = "<div class='muted'>No matching columns.</div>";
+    return;
+  }
+
+  els.columnVisibilityMeta.textContent = countLabel;
+  els.columnVisibilityControls.innerHTML = filteredColumns
+    .map((column) => {
+      const checked = isColumnVisible(column.index) ? "checked" : "";
+      return `
+        <label class="checklist-item" title="${escapeHtml(column.name)}">
+          <input id="visibility-col-${column.index}" type="checkbox" data-col-index="${column.index}" ${checked} />
+          <span>${escapeHtml(column.name)} <span class="muted">(${column.type})</span></span>
+        </label>
+      `;
+    })
+    .join("");
+}
+
+function renderPlotSubfilterControls(columns) {
+  populateColumnSelectWithNone(els.subFilterColumn2d, columns, state.plot2d.subFilterColumn);
+  populateColumnSelectWithNone(els.subFilterColumn3d, columns, state.plot3d.subFilterColumn);
 
   els.subFilterQuery2d.value = state.plot2d.subFilterQuery;
   els.subFilterQuery3d.value = state.plot3d.subFilterQuery;
 
-  const disabled = state.columns.length === 0;
+  const disabled = columns.length === 0;
   els.subFilterQuery2d.disabled = disabled;
   els.subFilterQuery3d.disabled = disabled;
   els.clearSubFilter2d.disabled = disabled;
@@ -966,7 +1153,8 @@ function renderPlotSubfilterControls() {
 }
 
 function renderSortControls() {
-  if (state.headers.length === 0) {
+  const visibleColumns = getVisibleColumns();
+  if (visibleColumns.length === 0) {
     els.sortColumnSelect.innerHTML = "<option value=''>None</option>";
     els.sortColumnSelect.disabled = true;
     els.sortDirectionSelect.value = "none";
@@ -976,7 +1164,7 @@ function renderSortControls() {
   }
 
   const options = ["<option value=''>None</option>"];
-  state.columns.forEach((column) => {
+  visibleColumns.forEach((column) => {
     options.push(`<option value="${column.index}">${escapeHtml(column.name)}</option>`);
   });
 
@@ -989,13 +1177,14 @@ function renderSortControls() {
 }
 
 function renderFilterControls() {
-  if (state.headers.length === 0) {
+  const visibleColumns = getVisibleColumns();
+  if (visibleColumns.length === 0) {
     els.filterControls.innerHTML = "<div class='muted'>No columns loaded.</div>";
     els.clearFiltersBtn.disabled = true;
     return;
   }
 
-  const html = state.columns
+  const html = visibleColumns
     .map((column) => {
       const placeholder = column.type === "number" ? "comma list: 1,2 or >1,<3" : "comma list: b1,b2";
       const value = state.dataOps.filters[column.index] || "";
@@ -1019,18 +1208,24 @@ function renderFilterControls() {
 }
 
 function renderStatsControls() {
-  if (state.headers.length === 0) {
+  const visibleColumns = getVisibleColumns();
+  if (visibleColumns.length === 0) {
     els.statsColumnSelect.innerHTML = "<option value=''>None</option>";
     els.statsColumnSelect.disabled = true;
+    state.dataOps.statsColumn = null;
     return;
   }
 
-  els.statsColumnSelect.innerHTML = state.columns
+  els.statsColumnSelect.innerHTML = visibleColumns
     .map((column) => `<option value="${column.index}">${escapeHtml(column.name)} (${column.type})</option>`)
     .join("");
 
-  if (state.dataOps.statsColumn === null || !state.columns[state.dataOps.statsColumn]) {
-    state.dataOps.statsColumn = state.columns[0].index;
+  if (
+    state.dataOps.statsColumn === null ||
+    !state.columns[state.dataOps.statsColumn] ||
+    !isColumnVisible(state.dataOps.statsColumn)
+  ) {
+    state.dataOps.statsColumn = visibleColumns[0].index;
   }
 
   els.statsColumnSelect.disabled = false;
@@ -1143,7 +1338,7 @@ function renderViews() {
 
 function updateExportButtonState(viewRows) {
   const exportRows = getExportRowsForActiveTab(viewRows);
-  els.exportBtn.disabled = state.headers.length === 0 || exportRows.length === 0;
+  els.exportBtn.disabled = getVisibleColumns().length === 0 || exportRows.length === 0;
 }
 
 function buildViewRows() {
@@ -1157,9 +1352,13 @@ function buildViewRows() {
 }
 
 function renderTable(viewRows) {
-  if (state.headers.length === 0) {
+  const visibleColumns = getVisibleColumns();
+  if (state.headers.length === 0 || visibleColumns.length === 0) {
     els.tableContainer.classList.add("empty");
-    els.tableContainer.innerHTML = '<div class="empty-message">Load a CSV to view rows and columns.</div>';
+    els.tableContainer.innerHTML =
+      state.headers.length === 0
+        ? '<div class="empty-message">Load a CSV to view rows and columns.</div>'
+        : '<div class="empty-message">No visible columns. Use Columns controls to show columns.</div>';
     els.tableMeta.textContent = "";
     return;
   }
@@ -1167,9 +1366,10 @@ function renderTable(viewRows) {
   els.tableContainer.classList.remove("empty");
 
   const shown = viewRows.slice(0, MAX_TABLE_ROWS);
-  const headerCells = state.headers
-    .map((header, index) => {
-      const column = state.columns[index];
+  const headerCells = visibleColumns
+    .map((column) => {
+      const header = column.name;
+      const index = column.index;
       const sortIndicator =
         state.dataOps.sortColumn === index
           ? state.dataOps.sortDirection === "desc"
@@ -1187,8 +1387,9 @@ function renderTable(viewRows) {
 
   const bodyRows = shown
     .map((entry) => {
-      const cells = entry.values
-        .map((value) => {
+      const cells = visibleColumns
+        .map((column) => {
+          const value = entry.values[column.index];
           const safe = escapeHtml(value);
           return `<td title="${safe}">${safe}</td>`;
         })
@@ -1218,13 +1419,25 @@ function renderTable(viewRows) {
   const visibleSuffix = viewRows.length > MAX_TABLE_ROWS ? ` (showing first ${MAX_TABLE_ROWS.toLocaleString()})` : "";
   const filterLabel = filterCount > 0 ? ` · ${filterCount} active filter${filterCount === 1 ? "" : "s"}` : "";
 
-  els.tableMeta.textContent = `${viewRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} rows · ${state.headers.length.toLocaleString()} columns${filterLabel}${sortLabel}${visibleSuffix}`;
+  const hiddenCount = state.headers.length - visibleColumns.length;
+  const visibleLabel =
+    hiddenCount > 0
+      ? ` · ${visibleColumns.length.toLocaleString()} visible / ${state.headers.length.toLocaleString()} total columns`
+      : ` · ${state.headers.length.toLocaleString()} columns`;
+
+  els.tableMeta.textContent = `${viewRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} rows${visibleLabel}${filterLabel}${sortLabel}${visibleSuffix}`;
 }
 
 function renderQuickStats(viewRows) {
-  if (state.headers.length === 0 || state.dataOps.statsColumn === null) {
+  if (state.headers.length === 0) {
     els.quickStats.classList.add("muted");
     els.quickStats.innerHTML = "Load a CSV to compute stats.";
+    return;
+  }
+
+  if (state.dataOps.statsColumn === null || !isColumnVisible(state.dataOps.statsColumn)) {
+    els.quickStats.classList.add("muted");
+    els.quickStats.innerHTML = "Show a column to compute stats.";
     return;
   }
 
@@ -1619,11 +1832,11 @@ function getExportRowsForActiveTab(precomputedBaseRows) {
   return baseRows;
 }
 
-function serializeRowsToCsv(headers, rowEntries) {
+function serializeRowsToCsv(columns, rowEntries) {
   const lines = [];
-  lines.push(headers.map((value) => csvEscape(value)).join(","));
+  lines.push(columns.map((column) => csvEscape(column.name)).join(","));
   rowEntries.forEach((entry) => {
-    lines.push(entry.values.map((value) => csvEscape(value)).join(","));
+    lines.push(columns.map((column) => csvEscape(entry.values[column.index])).join(","));
   });
   return `${lines.join("\n")}\n`;
 }

@@ -63,6 +63,17 @@
           </div>
           <div class="controls controls-data">
             <div class="control-block">
+              <h3>Columns</h3>
+              <label for="columnVisibilitySearch">Find column</label>
+              <input id="columnVisibilitySearch" type="text" placeholder="Search columns..." />
+              <div class="inline-buttons">
+                <button id="showAllColumnsBtn" class="secondary-btn" type="button">Show all</button>
+                <button id="hideAllColumnsBtn" class="secondary-btn" type="button">Hide all</button>
+              </div>
+              <div id="columnVisibilityMeta" class="muted"></div>
+              <div id="columnVisibilityControls" class="checklist"></div>
+            </div>
+            <div class="control-block">
               <h3>Sort</h3>
               <label for="sortColumnSelect">Column</label>
               <select id="sortColumnSelect"></select>
