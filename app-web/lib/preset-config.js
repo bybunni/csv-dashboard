@@ -145,7 +145,7 @@ function parseArray(lines, startIndex, indent) {
     if (line.indent > indent) {
       throw new Error(`Unexpected indentation at line ${line.lineNo}`);
     }
-    if (!line.content.startsWith("- ")) {
+    if (line.content !== "-" && !line.content.startsWith("- ")) {
       break;
     }
 
@@ -183,7 +183,7 @@ function parseObject(lines, startIndex, indent) {
     if (line.indent > indent) {
       throw new Error(`Unexpected indentation at line ${line.lineNo}`);
     }
-    if (line.content.startsWith("- ")) {
+    if (line.content === "-" || line.content.startsWith("- ")) {
       break;
     }
 
@@ -225,7 +225,7 @@ function parseBlock(lines, startIndex, indent) {
     throw new Error(`Unexpected indentation at line ${line.lineNo}`);
   }
 
-  if (line.content.startsWith("- ")) {
+  if (line.content === "-" || line.content.startsWith("- ")) {
     return parseArray(lines, startIndex, indent);
   }
 
