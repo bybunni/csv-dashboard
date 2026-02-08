@@ -51,10 +51,11 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run tauri -- build --no-bundle
 
-      - name: Package macOS .app
+      - name: Ad-hoc sign and package macOS .app
         if: runner.os == 'macOS'
         shell: bash
         run: |
+          codesign --force --deep -s - "src-tauri/target/release/bundle/macos/CSV Dashboard.app"
           mkdir -p dist
           ditto -c -k --sequesterRsrc --keepParent \
             "src-tauri/target/release/bundle/macos/CSV Dashboard.app" \
