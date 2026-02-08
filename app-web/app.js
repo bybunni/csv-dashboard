@@ -44,25 +44,15 @@ const state = {
     sortDirection: "none",
     statsColumn: null,
   },
-  plot2d: {
-    useIndexX: true,
-    xColumn: null,
-    yColumns: new Set(),
-    style: "both",
-    subFilterColumn: null,
-    subFilterQuery: "",
+  plots2d: {
+    items: [],
+    activeId: null,
+    nextId: 0,
   },
-  plot3d: {
-    xColumn: null,
-    yColumn: null,
-    zColumn: null,
-    colorColumn: null,
-    sizeColumn: null,
-    baseSize: 4,
-    subFilterColumn: null,
-    subFilterQuery: "",
-    camera: { ...DEFAULT_3D_CAMERA },
-    relayoutBound: false,
+  plots3d: {
+    items: [],
+    activeId: null,
+    nextId: 0,
   },
   presets: {
     entries: [],
@@ -113,8 +103,7 @@ const els = {
   subFilterQuery2d: document.getElementById("subFilterQuery2d"),
   clearSubFilter2d: document.getElementById("clearSubFilter2d"),
   subFilterMeta2d: document.getElementById("subFilterMeta2d"),
-  plot2d: document.getElementById("plot2d"),
-  legend2d: document.getElementById("legend2d"),
+  plotGrid2d: document.getElementById("plotGrid2d"),
   xSelect3d: document.getElementById("xSelect3d"),
   ySelect3d: document.getElementById("ySelect3d"),
   zSelect3d: document.getElementById("zSelect3d"),
@@ -127,9 +116,54 @@ const els = {
   clearSubFilter3d: document.getElementById("clearSubFilter3d"),
   subFilterMeta3d: document.getElementById("subFilterMeta3d"),
   reset3dView: document.getElementById("reset3dView"),
-  plot3d: document.getElementById("plot3d"),
-  meta3d: document.getElementById("meta3d"),
+  plotGrid3d: document.getElementById("plotGrid3d"),
 };
+
+function getActivePlot2d() {
+  return state.plots2d.items.find((p) => p.id === state.plots2d.activeId) || state.plots2d.items[0] || null;
+}
+
+function getActivePlot3d() {
+  return state.plots3d.items.find((p) => p.id === state.plots3d.activeId) || state.plots3d.items[0] || null;
+}
+
+function createPlot2dConfig(id) {
+  const numericColumns = getVisibleColumns().filter((c) => c.type === "number");
+  return {
+    id,
+    useIndexX: true,
+    xColumn: numericColumns.length ? numericColumns[0].index : null,
+    yColumns: new Set(numericColumns.slice(0, 3).map((c) => c.index)),
+    style: "both",
+    subFilterColumn: null,
+    subFilterQuery: "",
+  };
+}
+
+function createPlot3dConfig(id) {
+  const numericColumns = getVisibleColumns().filter((c) => c.type === "number");
+  return {
+    id,
+    xColumn: numericColumns[0] ? numericColumns[0].index : null,
+    yColumn: numericColumns[1] ? numericColumns[1].index : (numericColumns[0] ? numericColumns[0].index : null),
+    zColumn: numericColumns[2] ? numericColumns[2].index : (numericColumns[1] ? numericColumns[1].index : (numericColumns[0] ? numericColumns[0].index : null)),
+    colorColumn: null,
+    sizeColumn: null,
+    baseSize: 4,
+    subFilterColumn: null,
+    subFilterQuery: "",
+    camera: { ...DEFAULT_3D_CAMERA },
+    relayoutBound: false,
+  };
+}
+
+function getPlotElement(id) {
+  return document.getElementById(id);
+}
+
+function getPlotLegend(id) {
+  return document.getElementById(id + "-legend");
+}
 
 init();
 
@@ -141,6 +175,7 @@ function init() {
   bindDataControls();
   bind2dControls();
   bind3dControls();
+  bindPlotGridControls();
   refreshSelectors();
   renderViews();
 
@@ -149,10 +184,16 @@ function init() {
       return;
     }
     if (state.tab === "plot2d") {
-      window.Plotly.Plots.resize(els.plot2d);
+      state.plots2d.items.forEach((p) => {
+        const el = getPlotElement(p.id);
+        if (el) window.Plotly.Plots.resize(el);
+      });
     }
     if (state.tab === "plot3d") {
-      window.Plotly.Plots.resize(els.plot3d);
+      state.plots3d.items.forEach((p) => {
+        const el = getPlotElement(p.id);
+        if (el) window.Plotly.Plots.resize(el);
+      });
     }
   });
 }
@@ -215,10 +256,10 @@ function setTab(tab) {
 
   const viewRows = buildViewRows();
   if (tab === "plot2d") {
-    draw2D(viewRows);
+    drawAll2D(viewRows);
   }
   if (tab === "plot3d") {
-    draw3D(viewRows);
+    drawAll3D(viewRows);
   }
   updateExportButtonState(viewRows);
 }
@@ -347,93 +388,125 @@ function bindDataControls() {
 
 function bind2dControls() {
   els.xIndexMode.addEventListener("change", () => {
-    state.plot2d.useIndexX = els.xIndexMode.checked;
-    els.xSelect2d.disabled = state.plot2d.useIndexX;
-    draw2D(buildViewRows());
+    const p = getActivePlot2d();
+    if (!p) return;
+    p.useIndexX = els.xIndexMode.checked;
+    els.xSelect2d.disabled = p.useIndexX;
+    drawSingle2D(p, buildViewRows());
   });
 
   els.xSelect2d.addEventListener("change", () => {
-    state.plot2d.xColumn = valueToNullableNumber(els.xSelect2d.value);
-    draw2D(buildViewRows());
+    const p = getActivePlot2d();
+    if (!p) return;
+    p.xColumn = valueToNullableNumber(els.xSelect2d.value);
+    drawSingle2D(p, buildViewRows());
   });
 
   els.plotStyle2d.addEventListener("change", () => {
-    state.plot2d.style = els.plotStyle2d.value;
-    draw2D(buildViewRows());
+    const p = getActivePlot2d();
+    if (!p) return;
+    p.style = els.plotStyle2d.value;
+    drawSingle2D(p, buildViewRows());
   });
 
   els.subFilterColumn2d.addEventListener("change", () => {
-    state.plot2d.subFilterColumn = valueToNullableNumber(els.subFilterColumn2d.value);
-    draw2D(buildViewRows());
+    const p = getActivePlot2d();
+    if (!p) return;
+    p.subFilterColumn = valueToNullableNumber(els.subFilterColumn2d.value);
+    drawSingle2D(p, buildViewRows());
   });
 
   els.subFilterQuery2d.addEventListener("input", () => {
-    state.plot2d.subFilterQuery = els.subFilterQuery2d.value;
-    draw2D(buildViewRows());
+    const p = getActivePlot2d();
+    if (!p) return;
+    p.subFilterQuery = els.subFilterQuery2d.value;
+    drawSingle2D(p, buildViewRows());
   });
 
   els.clearSubFilter2d.addEventListener("click", () => {
-    state.plot2d.subFilterColumn = null;
-    state.plot2d.subFilterQuery = "";
+    const p = getActivePlot2d();
+    if (!p) return;
+    p.subFilterColumn = null;
+    p.subFilterQuery = "";
     els.subFilterColumn2d.value = "";
     els.subFilterQuery2d.value = "";
-    draw2D(buildViewRows());
+    drawSingle2D(p, buildViewRows());
   });
 }
 
 function bind3dControls() {
   els.xSelect3d.addEventListener("change", () => {
-    state.plot3d.xColumn = valueToNullableNumber(els.xSelect3d.value);
-    draw3D(buildViewRows());
+    const p = getActivePlot3d();
+    if (!p) return;
+    p.xColumn = valueToNullableNumber(els.xSelect3d.value);
+    drawSingle3D(p, buildViewRows());
   });
 
   els.ySelect3d.addEventListener("change", () => {
-    state.plot3d.yColumn = valueToNullableNumber(els.ySelect3d.value);
-    draw3D(buildViewRows());
+    const p = getActivePlot3d();
+    if (!p) return;
+    p.yColumn = valueToNullableNumber(els.ySelect3d.value);
+    drawSingle3D(p, buildViewRows());
   });
 
   els.zSelect3d.addEventListener("change", () => {
-    state.plot3d.zColumn = valueToNullableNumber(els.zSelect3d.value);
-    draw3D(buildViewRows());
+    const p = getActivePlot3d();
+    if (!p) return;
+    p.zColumn = valueToNullableNumber(els.zSelect3d.value);
+    drawSingle3D(p, buildViewRows());
   });
 
   els.colorSelect3d.addEventListener("change", () => {
-    state.plot3d.colorColumn = valueToNullableNumber(els.colorSelect3d.value);
-    draw3D(buildViewRows());
+    const p = getActivePlot3d();
+    if (!p) return;
+    p.colorColumn = valueToNullableNumber(els.colorSelect3d.value);
+    drawSingle3D(p, buildViewRows());
   });
 
   els.sizeSelect3d.addEventListener("change", () => {
-    state.plot3d.sizeColumn = valueToNullableNumber(els.sizeSelect3d.value);
-    draw3D(buildViewRows());
+    const p = getActivePlot3d();
+    if (!p) return;
+    p.sizeColumn = valueToNullableNumber(els.sizeSelect3d.value);
+    drawSingle3D(p, buildViewRows());
   });
 
   els.pointSize3d.addEventListener("input", () => {
-    state.plot3d.baseSize = Number(els.pointSize3d.value);
-    els.pointSizeValue3d.textContent = String(state.plot3d.baseSize);
-    draw3D(buildViewRows());
+    const p = getActivePlot3d();
+    if (!p) return;
+    p.baseSize = Number(els.pointSize3d.value);
+    els.pointSizeValue3d.textContent = String(p.baseSize);
+    drawSingle3D(p, buildViewRows());
   });
 
   els.reset3dView.addEventListener("click", () => {
-    state.plot3d.camera = { ...DEFAULT_3D_CAMERA };
-    draw3D(buildViewRows());
+    const p = getActivePlot3d();
+    if (!p) return;
+    p.camera = { ...DEFAULT_3D_CAMERA };
+    drawSingle3D(p, buildViewRows());
   });
 
   els.subFilterColumn3d.addEventListener("change", () => {
-    state.plot3d.subFilterColumn = valueToNullableNumber(els.subFilterColumn3d.value);
-    draw3D(buildViewRows());
+    const p = getActivePlot3d();
+    if (!p) return;
+    p.subFilterColumn = valueToNullableNumber(els.subFilterColumn3d.value);
+    drawSingle3D(p, buildViewRows());
   });
 
   els.subFilterQuery3d.addEventListener("input", () => {
-    state.plot3d.subFilterQuery = els.subFilterQuery3d.value;
-    draw3D(buildViewRows());
+    const p = getActivePlot3d();
+    if (!p) return;
+    p.subFilterQuery = els.subFilterQuery3d.value;
+    drawSingle3D(p, buildViewRows());
   });
 
   els.clearSubFilter3d.addEventListener("click", () => {
-    state.plot3d.subFilterColumn = null;
-    state.plot3d.subFilterQuery = "";
+    const p = getActivePlot3d();
+    if (!p) return;
+    p.subFilterColumn = null;
+    p.subFilterQuery = "";
     els.subFilterColumn3d.value = "";
     els.subFilterQuery3d.value = "";
-    draw3D(buildViewRows());
+    drawSingle3D(p, buildViewRows());
   });
 }
 
@@ -506,19 +579,13 @@ function clearLoadedData() {
   state.dataOps.sortDirection = "none";
   state.dataOps.statsColumn = null;
 
-  state.plot2d.yColumns = new Set();
-  state.plot2d.xColumn = null;
-  state.plot2d.subFilterColumn = null;
-  state.plot2d.subFilterQuery = "";
+  state.plots2d.items = [];
+  state.plots2d.activeId = null;
+  state.plots2d.nextId = 0;
 
-  state.plot3d.xColumn = null;
-  state.plot3d.yColumn = null;
-  state.plot3d.zColumn = null;
-  state.plot3d.colorColumn = null;
-  state.plot3d.sizeColumn = null;
-  state.plot3d.subFilterColumn = null;
-  state.plot3d.subFilterQuery = "";
-  state.plot3d.camera = { ...DEFAULT_3D_CAMERA };
+  state.plots3d.items = [];
+  state.plots3d.activeId = null;
+  state.plots3d.nextId = 0;
 
   els.savePresetName.value = "";
 }
@@ -678,59 +745,88 @@ function parseFiltersMap(rawFilters) {
   return {};
 }
 
+function normalizeSinglePlot2d(plot2d) {
+  const subFilter2d =
+    plot2d.subFilter && typeof plot2d.subFilter === "object" && !Array.isArray(plot2d.subFilter) ? plot2d.subFilter : {};
+  const style = String(plot2d.style || "both");
+  return {
+    useIndexX: plot2d.useIndexX === undefined ? true : Boolean(plot2d.useIndexX),
+    xColumn: plot2d.xColumn === null || plot2d.xColumn === undefined ? null : String(plot2d.xColumn),
+    yColumns: Array.isArray(plot2d.yColumns) ? plot2d.yColumns.map((item) => String(item)) : [],
+    style: ["scatter", "line", "both"].includes(style) ? style : "both",
+    subFilter: {
+      column: subFilter2d.column === null || subFilter2d.column === undefined ? null : String(subFilter2d.column),
+      query: String(subFilter2d.query || ""),
+    },
+  };
+}
+
+function normalizeSinglePlot3d(plot3d) {
+  const subFilter3d =
+    plot3d.subFilter && typeof plot3d.subFilter === "object" && !Array.isArray(plot3d.subFilter) ? plot3d.subFilter : {};
+  return {
+    xColumn: plot3d.xColumn === null || plot3d.xColumn === undefined ? null : String(plot3d.xColumn),
+    yColumn: plot3d.yColumn === null || plot3d.yColumn === undefined ? null : String(plot3d.yColumn),
+    zColumn: plot3d.zColumn === null || plot3d.zColumn === undefined ? null : String(plot3d.zColumn),
+    colorColumn: plot3d.colorColumn === null || plot3d.colorColumn === undefined ? null : String(plot3d.colorColumn),
+    sizeColumn: plot3d.sizeColumn === null || plot3d.sizeColumn === undefined ? null : String(plot3d.sizeColumn),
+    baseSize: Number.isFinite(Number(plot3d.baseSize)) ? clamp(Number(plot3d.baseSize), 1, 12) : 4,
+    subFilter: {
+      column: subFilter3d.column === null || subFilter3d.column === undefined ? null : String(subFilter3d.column),
+      query: String(subFilter3d.query || ""),
+    },
+  };
+}
+
 function normalizePresetConfig(rawPreset) {
   if (!rawPreset || typeof rawPreset !== "object" || Array.isArray(rawPreset)) {
     throw new Error("Preset must be a YAML object.");
   }
 
   const data = rawPreset.data && typeof rawPreset.data === "object" && !Array.isArray(rawPreset.data) ? rawPreset.data : {};
-  const plot2d =
-    rawPreset.plot2d && typeof rawPreset.plot2d === "object" && !Array.isArray(rawPreset.plot2d) ? rawPreset.plot2d : {};
-  const plot3d =
-    rawPreset.plot3d && typeof rawPreset.plot3d === "object" && !Array.isArray(rawPreset.plot3d) ? rawPreset.plot3d : {};
   const sort = data.sort && typeof data.sort === "object" && !Array.isArray(data.sort) ? data.sort : {};
-  const subFilter2d =
-    plot2d.subFilter && typeof plot2d.subFilter === "object" && !Array.isArray(plot2d.subFilter) ? plot2d.subFilter : {};
-  const subFilter3d =
-    plot3d.subFilter && typeof plot3d.subFilter === "object" && !Array.isArray(plot3d.subFilter) ? plot3d.subFilter : {};
-
-  const style = String(plot2d.style || "both");
   const sortDirection = String(sort.direction || "none");
+
+  const normalizedData = {
+    filters: parseFiltersMap(data.filters),
+    visibleColumns: Array.isArray(data.visibleColumns) ? data.visibleColumns.map((item) => String(item)) : null,
+    sort: {
+      column: sort.column === null || sort.column === undefined ? null : String(sort.column),
+      direction: ["none", "asc", "desc"].includes(sortDirection) ? sortDirection : "none",
+    },
+    statsColumn: data.statsColumn === null || data.statsColumn === undefined ? null : String(data.statsColumn),
+  };
+
+  let plots2d;
+  if (Array.isArray(rawPreset.plots2d)) {
+    plots2d = rawPreset.plots2d.map((item) => {
+      const obj = item && typeof item === "object" && !Array.isArray(item) ? item : {};
+      return normalizeSinglePlot2d(obj);
+    });
+  } else {
+    const plot2d =
+      rawPreset.plot2d && typeof rawPreset.plot2d === "object" && !Array.isArray(rawPreset.plot2d) ? rawPreset.plot2d : {};
+    plots2d = [normalizeSinglePlot2d(plot2d)];
+  }
+
+  let plots3d;
+  if (Array.isArray(rawPreset.plots3d)) {
+    plots3d = rawPreset.plots3d.map((item) => {
+      const obj = item && typeof item === "object" && !Array.isArray(item) ? item : {};
+      return normalizeSinglePlot3d(obj);
+    });
+  } else {
+    const plot3d =
+      rawPreset.plot3d && typeof rawPreset.plot3d === "object" && !Array.isArray(rawPreset.plot3d) ? rawPreset.plot3d : {};
+    plots3d = [normalizeSinglePlot3d(plot3d)];
+  }
 
   return {
     version: Number.isFinite(Number(rawPreset.version)) ? Number(rawPreset.version) : 1,
     name: String(rawPreset.name || ""),
-    data: {
-      filters: parseFiltersMap(data.filters),
-      visibleColumns: Array.isArray(data.visibleColumns) ? data.visibleColumns.map((item) => String(item)) : null,
-      sort: {
-        column: sort.column === null || sort.column === undefined ? null : String(sort.column),
-        direction: ["none", "asc", "desc"].includes(sortDirection) ? sortDirection : "none",
-      },
-      statsColumn: data.statsColumn === null || data.statsColumn === undefined ? null : String(data.statsColumn),
-    },
-    plot2d: {
-      useIndexX: plot2d.useIndexX === undefined ? true : Boolean(plot2d.useIndexX),
-      xColumn: plot2d.xColumn === null || plot2d.xColumn === undefined ? null : String(plot2d.xColumn),
-      yColumns: Array.isArray(plot2d.yColumns) ? plot2d.yColumns.map((item) => String(item)) : [],
-      style: ["scatter", "line", "both"].includes(style) ? style : "both",
-      subFilter: {
-        column: subFilter2d.column === null || subFilter2d.column === undefined ? null : String(subFilter2d.column),
-        query: String(subFilter2d.query || ""),
-      },
-    },
-    plot3d: {
-      xColumn: plot3d.xColumn === null || plot3d.xColumn === undefined ? null : String(plot3d.xColumn),
-      yColumn: plot3d.yColumn === null || plot3d.yColumn === undefined ? null : String(plot3d.yColumn),
-      zColumn: plot3d.zColumn === null || plot3d.zColumn === undefined ? null : String(plot3d.zColumn),
-      colorColumn: plot3d.colorColumn === null || plot3d.colorColumn === undefined ? null : String(plot3d.colorColumn),
-      sizeColumn: plot3d.sizeColumn === null || plot3d.sizeColumn === undefined ? null : String(plot3d.sizeColumn),
-      baseSize: Number.isFinite(Number(plot3d.baseSize)) ? clamp(Number(plot3d.baseSize), 1, 12) : 4,
-      subFilter: {
-        column: subFilter3d.column === null || subFilter3d.column === undefined ? null : String(subFilter3d.column),
-        query: String(subFilter3d.query || ""),
-      },
-    },
+    data: normalizedData,
+    plots2d,
+    plots3d,
   };
 }
 
@@ -774,7 +870,6 @@ function resolveNumericColumnIndexByName(columnName, missingColumns) {
 
 function applyPresetConfig(preset) {
   initializeDataOps();
-  initializePlotSelections();
 
   const missingColumns = new Set();
   Object.keys(state.dataOps.filters).forEach((key) => {
@@ -812,27 +907,41 @@ function applyPresetConfig(preset) {
     state.dataOps.statsColumn = statsColumn;
   }
 
-  state.plot2d.useIndexX = preset.plot2d.useIndexX;
-  state.plot2d.style = preset.plot2d.style;
-  state.plot2d.xColumn = resolveNumericColumnIndexByName(preset.plot2d.xColumn, missingColumns);
-  state.plot2d.yColumns = new Set();
-  preset.plot2d.yColumns.forEach((columnName) => {
-    const index = resolveNumericColumnIndexByName(columnName, missingColumns);
-    if (index !== null) {
-      state.plot2d.yColumns.add(index);
-    }
+  state.plots2d.items = preset.plots2d.map((presetPlot, index) => {
+    const id = `plot2d-${index}`;
+    const cfg = createPlot2dConfig(id);
+    cfg.useIndexX = presetPlot.useIndexX;
+    cfg.style = presetPlot.style;
+    cfg.xColumn = resolveNumericColumnIndexByName(presetPlot.xColumn, missingColumns);
+    cfg.yColumns = new Set();
+    presetPlot.yColumns.forEach((columnName) => {
+      const colIndex = resolveNumericColumnIndexByName(columnName, missingColumns);
+      if (colIndex !== null) {
+        cfg.yColumns.add(colIndex);
+      }
+    });
+    cfg.subFilterColumn = resolveColumnIndexByName(presetPlot.subFilter.column, missingColumns);
+    cfg.subFilterQuery = presetPlot.subFilter.query;
+    return cfg;
   });
-  state.plot2d.subFilterColumn = resolveColumnIndexByName(preset.plot2d.subFilter.column, missingColumns);
-  state.plot2d.subFilterQuery = preset.plot2d.subFilter.query;
+  state.plots2d.nextId = state.plots2d.items.length;
+  state.plots2d.activeId = state.plots2d.items.length > 0 ? state.plots2d.items[0].id : null;
 
-  state.plot3d.xColumn = resolveNumericColumnIndexByName(preset.plot3d.xColumn, missingColumns);
-  state.plot3d.yColumn = resolveNumericColumnIndexByName(preset.plot3d.yColumn, missingColumns);
-  state.plot3d.zColumn = resolveNumericColumnIndexByName(preset.plot3d.zColumn, missingColumns);
-  state.plot3d.colorColumn = resolveNumericColumnIndexByName(preset.plot3d.colorColumn, missingColumns);
-  state.plot3d.sizeColumn = resolveNumericColumnIndexByName(preset.plot3d.sizeColumn, missingColumns);
-  state.plot3d.baseSize = clamp(preset.plot3d.baseSize, 1, 12);
-  state.plot3d.subFilterColumn = resolveColumnIndexByName(preset.plot3d.subFilter.column, missingColumns);
-  state.plot3d.subFilterQuery = preset.plot3d.subFilter.query;
+  state.plots3d.items = preset.plots3d.map((presetPlot, index) => {
+    const id = `plot3d-${index}`;
+    const cfg = createPlot3dConfig(id);
+    cfg.xColumn = resolveNumericColumnIndexByName(presetPlot.xColumn, missingColumns);
+    cfg.yColumn = resolveNumericColumnIndexByName(presetPlot.yColumn, missingColumns);
+    cfg.zColumn = resolveNumericColumnIndexByName(presetPlot.zColumn, missingColumns);
+    cfg.colorColumn = resolveNumericColumnIndexByName(presetPlot.colorColumn, missingColumns);
+    cfg.sizeColumn = resolveNumericColumnIndexByName(presetPlot.sizeColumn, missingColumns);
+    cfg.baseSize = clamp(presetPlot.baseSize, 1, 12);
+    cfg.subFilterColumn = resolveColumnIndexByName(presetPlot.subFilter.column, missingColumns);
+    cfg.subFilterQuery = presetPlot.subFilter.query;
+    return cfg;
+  });
+  state.plots3d.nextId = state.plots3d.items.length;
+  state.plots3d.activeId = state.plots3d.items.length > 0 ? state.plots3d.items[0].id : null;
 
   applyColumnVisibilityEffects();
 
@@ -854,17 +963,42 @@ function buildCurrentPresetConfig() {
     filters[state.headers[index]] = trimmed;
   });
 
-  const yColumns = [...state.plot2d.yColumns]
-    .sort((left, right) => left - right)
-    .map((index) => state.headers[index])
-    .filter((name) => Boolean(name));
-
   const visibleColumns = getVisibleColumns()
     .sort((left, right) => left.index - right.index)
     .map((column) => column.name);
 
+  const plots2d = state.plots2d.items.map((p) => {
+    const yColumns = [...p.yColumns]
+      .sort((left, right) => left - right)
+      .map((index) => state.headers[index])
+      .filter((name) => Boolean(name));
+    return {
+      useIndexX: p.useIndexX,
+      xColumn: p.xColumn === null ? null : state.headers[p.xColumn] || null,
+      yColumns,
+      style: p.style,
+      subFilter: {
+        column: p.subFilterColumn === null ? null : state.headers[p.subFilterColumn] || null,
+        query: p.subFilterQuery,
+      },
+    };
+  });
+
+  const plots3d = state.plots3d.items.map((p) => ({
+    xColumn: p.xColumn === null ? null : state.headers[p.xColumn] || null,
+    yColumn: p.yColumn === null ? null : state.headers[p.yColumn] || null,
+    zColumn: p.zColumn === null ? null : state.headers[p.zColumn] || null,
+    colorColumn: p.colorColumn === null ? null : state.headers[p.colorColumn] || null,
+    sizeColumn: p.sizeColumn === null ? null : state.headers[p.sizeColumn] || null,
+    baseSize: p.baseSize,
+    subFilter: {
+      column: p.subFilterColumn === null ? null : state.headers[p.subFilterColumn] || null,
+      query: p.subFilterQuery,
+    },
+  }));
+
   return {
-    version: 1,
+    version: 2,
     name: String(els.savePresetName.value || "").trim() || defaultPresetName(),
     data: {
       filters,
@@ -875,28 +1009,8 @@ function buildCurrentPresetConfig() {
       },
       statsColumn: state.dataOps.statsColumn === null ? null : state.headers[state.dataOps.statsColumn] || null,
     },
-    plot2d: {
-      useIndexX: state.plot2d.useIndexX,
-      xColumn: state.plot2d.xColumn === null ? null : state.headers[state.plot2d.xColumn] || null,
-      yColumns,
-      style: state.plot2d.style,
-      subFilter: {
-        column: state.plot2d.subFilterColumn === null ? null : state.headers[state.plot2d.subFilterColumn] || null,
-        query: state.plot2d.subFilterQuery,
-      },
-    },
-    plot3d: {
-      xColumn: state.plot3d.xColumn === null ? null : state.headers[state.plot3d.xColumn] || null,
-      yColumn: state.plot3d.yColumn === null ? null : state.headers[state.plot3d.yColumn] || null,
-      zColumn: state.plot3d.zColumn === null ? null : state.headers[state.plot3d.zColumn] || null,
-      colorColumn: state.plot3d.colorColumn === null ? null : state.headers[state.plot3d.colorColumn] || null,
-      sizeColumn: state.plot3d.sizeColumn === null ? null : state.headers[state.plot3d.sizeColumn] || null,
-      baseSize: state.plot3d.baseSize,
-      subFilter: {
-        column: state.plot3d.subFilterColumn === null ? null : state.headers[state.plot3d.subFilterColumn] || null,
-        query: state.plot3d.subFilterQuery,
-      },
-    },
+    plots2d,
+    plots3d,
   };
 }
 
@@ -979,24 +1093,15 @@ function initializeDataOps() {
 }
 
 function initializePlotSelections() {
-  const numericColumns = state.columns.filter((column) => column.type === "number");
+  const id2d = "plot2d-0";
+  state.plots2d.items = [createPlot2dConfig(id2d)];
+  state.plots2d.activeId = id2d;
+  state.plots2d.nextId = 1;
 
-  state.plot2d.useIndexX = true;
-  state.plot2d.style = "both";
-  state.plot2d.xColumn = numericColumns.length ? numericColumns[0].index : null;
-  state.plot2d.yColumns = new Set(numericColumns.slice(0, 3).map((column) => column.index));
-  state.plot2d.subFilterColumn = null;
-  state.plot2d.subFilterQuery = "";
-
-  state.plot3d.xColumn = numericColumns[0] ? numericColumns[0].index : null;
-  state.plot3d.yColumn = numericColumns[1] ? numericColumns[1].index : state.plot3d.xColumn;
-  state.plot3d.zColumn = numericColumns[2] ? numericColumns[2].index : state.plot3d.yColumn;
-  state.plot3d.colorColumn = null;
-  state.plot3d.sizeColumn = null;
-  state.plot3d.subFilterColumn = null;
-  state.plot3d.subFilterQuery = "";
-  state.plot3d.baseSize = 4;
-  state.plot3d.camera = { ...DEFAULT_3D_CAMERA };
+  const id3d = "plot3d-0";
+  state.plots3d.items = [createPlot3dConfig(id3d)];
+  state.plots3d.activeId = id3d;
+  state.plots3d.nextId = 1;
 }
 
 function isColumnVisible(index) {
@@ -1028,60 +1133,55 @@ function applyColumnVisibilityEffects() {
     state.dataOps.statsColumn = visibleColumns[0] ? visibleColumns[0].index : null;
   }
 
-  if (state.plot2d.subFilterColumn !== null && !visibleIndexSet.has(state.plot2d.subFilterColumn)) {
-    state.plot2d.subFilterColumn = null;
-    state.plot2d.subFilterQuery = "";
-  }
-
-  if (state.plot3d.subFilterColumn !== null && !visibleIndexSet.has(state.plot3d.subFilterColumn)) {
-    state.plot3d.subFilterColumn = null;
-    state.plot3d.subFilterQuery = "";
-  }
-
-  if (state.plot2d.xColumn !== null && !visibleIndexSet.has(state.plot2d.xColumn)) {
-    state.plot2d.xColumn = visibleNumeric[0] ? visibleNumeric[0].index : null;
-  }
-
-  state.plot2d.yColumns = new Set(
-    [...state.plot2d.yColumns].filter(
-      (index) => visibleIndexSet.has(index) && state.columns[index] && state.columns[index].type === "number"
-    )
-  );
+  state.plots2d.items.forEach((p) => {
+    if (p.subFilterColumn !== null && !visibleIndexSet.has(p.subFilterColumn)) {
+      p.subFilterColumn = null;
+      p.subFilterQuery = "";
+    }
+    if (p.xColumn !== null && !visibleIndexSet.has(p.xColumn)) {
+      p.xColumn = visibleNumeric[0] ? visibleNumeric[0].index : null;
+    }
+    p.yColumns = new Set(
+      [...p.yColumns].filter(
+        (index) => visibleIndexSet.has(index) && state.columns[index] && state.columns[index].type === "number"
+      )
+    );
+  });
 
   const fallback3dX = visibleNumeric[0] ? visibleNumeric[0].index : null;
   const fallback3dY = visibleNumeric[1] ? visibleNumeric[1].index : fallback3dX;
   const fallback3dZ = visibleNumeric[2] ? visibleNumeric[2].index : fallback3dY;
 
-  if (state.plot3d.xColumn === null || !visibleIndexSet.has(state.plot3d.xColumn)) {
-    state.plot3d.xColumn = fallback3dX;
-  }
-  if (state.plot3d.yColumn === null || !visibleIndexSet.has(state.plot3d.yColumn)) {
-    state.plot3d.yColumn = fallback3dY;
-  }
-  if (state.plot3d.zColumn === null || !visibleIndexSet.has(state.plot3d.zColumn)) {
-    state.plot3d.zColumn = fallback3dZ;
-  }
-
-  if (state.plot3d.colorColumn !== null && !visibleIndexSet.has(state.plot3d.colorColumn)) {
-    state.plot3d.colorColumn = null;
-  }
-  if (state.plot3d.sizeColumn !== null && !visibleIndexSet.has(state.plot3d.sizeColumn)) {
-    state.plot3d.sizeColumn = null;
-  }
+  state.plots3d.items.forEach((p) => {
+    if (p.subFilterColumn !== null && !visibleIndexSet.has(p.subFilterColumn)) {
+      p.subFilterColumn = null;
+      p.subFilterQuery = "";
+    }
+    if (p.xColumn === null || !visibleIndexSet.has(p.xColumn)) {
+      p.xColumn = fallback3dX;
+    }
+    if (p.yColumn === null || !visibleIndexSet.has(p.yColumn)) {
+      p.yColumn = fallback3dY;
+    }
+    if (p.zColumn === null || !visibleIndexSet.has(p.zColumn)) {
+      p.zColumn = fallback3dZ;
+    }
+    if (p.colorColumn !== null && !visibleIndexSet.has(p.colorColumn)) {
+      p.colorColumn = null;
+    }
+    if (p.sizeColumn !== null && !visibleIndexSet.has(p.sizeColumn)) {
+      p.sizeColumn = null;
+    }
+  });
 }
 
 function refreshSelectors() {
-  const visibleColumns = getVisibleColumns();
-  const numericColumns = visibleColumns.filter((column) => column.type === "number");
-
   renderPresetControls();
   renderDataControls();
-  renderPlotSubfilterControls(visibleColumns);
-  render2dSelectors(numericColumns);
-  render3dSelectors(numericColumns);
-
-  els.pointSize3d.value = String(state.plot3d.baseSize);
-  els.pointSizeValue3d.textContent = String(state.plot3d.baseSize);
+  renderPlotGrid2d();
+  renderPlotGrid3d();
+  syncControlsToActivePlot2d();
+  syncControlsToActivePlot3d();
 }
 
 function renderDataControls() {
@@ -1133,23 +1233,78 @@ function renderColumnVisibilityControls() {
     .join("");
 }
 
-function renderPlotSubfilterControls(columns) {
-  populateColumnSelectWithNone(els.subFilterColumn2d, columns, state.plot2d.subFilterColumn);
-  populateColumnSelectWithNone(els.subFilterColumn3d, columns, state.plot3d.subFilterColumn);
+function syncControlsToActivePlot2d() {
+  const visibleColumns = getVisibleColumns();
+  const numericColumns = visibleColumns.filter((c) => c.type === "number");
+  const p = getActivePlot2d();
 
-  els.subFilterQuery2d.value = state.plot2d.subFilterQuery;
-  els.subFilterQuery3d.value = state.plot3d.subFilterQuery;
+  populateSelect(els.xSelect2d, numericColumns, p ? p.xColumn : null);
+  els.xIndexMode.checked = p ? p.useIndexX : true;
+  els.xSelect2d.disabled = (p ? p.useIndexX : true) || numericColumns.length === 0;
+  els.plotStyle2d.value = p ? p.style : "both";
 
-  const disabled = columns.length === 0;
-  els.subFilterQuery2d.disabled = disabled;
-  els.subFilterQuery3d.disabled = disabled;
-  els.clearSubFilter2d.disabled = disabled;
-  els.clearSubFilter3d.disabled = disabled;
-
-  if (disabled) {
-    els.subFilterMeta2d.textContent = "";
-    els.subFilterMeta3d.textContent = "";
+  if (numericColumns.length === 0) {
+    els.yColumns2d.innerHTML = "<div class='muted'>No numeric columns detected.</div>";
+    return;
   }
+
+  const selected = p ? new Set(p.yColumns) : new Set();
+  const html = numericColumns
+    .map(
+      (column) => `
+        <label class="checklist-item" title="${escapeHtml(column.name)}">
+          <input type="checkbox" data-col-index="${column.index}" ${selected.has(column.index) ? "checked" : ""} />
+          <span>${escapeHtml(column.name)}</span>
+        </label>
+      `
+    )
+    .join("");
+
+  els.yColumns2d.innerHTML = html;
+
+  els.yColumns2d.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const active = getActivePlot2d();
+      if (!active) return;
+      const col = Number(checkbox.dataset.colIndex);
+      if (checkbox.checked) {
+        active.yColumns.add(col);
+      } else {
+        active.yColumns.delete(col);
+      }
+      drawSingle2D(active, buildViewRows());
+    });
+  });
+
+  populateColumnSelectWithNone(els.subFilterColumn2d, visibleColumns, p ? p.subFilterColumn : null);
+  els.subFilterQuery2d.value = p ? p.subFilterQuery : "";
+  const disabled2d = visibleColumns.length === 0;
+  els.subFilterQuery2d.disabled = disabled2d;
+  els.clearSubFilter2d.disabled = disabled2d;
+  if (disabled2d) els.subFilterMeta2d.textContent = "";
+}
+
+function syncControlsToActivePlot3d() {
+  const visibleColumns = getVisibleColumns();
+  const numericColumns = visibleColumns.filter((c) => c.type === "number");
+  const p = getActivePlot3d();
+
+  populateSelect(els.xSelect3d, numericColumns, p ? p.xColumn : null);
+  populateSelect(els.ySelect3d, numericColumns, p ? p.yColumn : null);
+  populateSelect(els.zSelect3d, numericColumns, p ? p.zColumn : null);
+  populateOptionalSelect(els.colorSelect3d, numericColumns, p ? p.colorColumn : null);
+  populateOptionalSelect(els.sizeSelect3d, numericColumns, p ? p.sizeColumn : null);
+
+  const baseSize = p ? p.baseSize : 4;
+  els.pointSize3d.value = String(baseSize);
+  els.pointSizeValue3d.textContent = String(baseSize);
+
+  populateColumnSelectWithNone(els.subFilterColumn3d, visibleColumns, p ? p.subFilterColumn : null);
+  els.subFilterQuery3d.value = p ? p.subFilterQuery : "";
+  const disabled3d = visibleColumns.length === 0;
+  els.subFilterQuery3d.disabled = disabled3d;
+  els.clearSubFilter3d.disabled = disabled3d;
+  if (disabled3d) els.subFilterMeta3d.textContent = "";
 }
 
 function renderSortControls() {
@@ -1232,52 +1387,6 @@ function renderStatsControls() {
   els.statsColumnSelect.value = String(state.dataOps.statsColumn);
 }
 
-function render2dSelectors(numericColumns) {
-  populateSelect(els.xSelect2d, numericColumns, state.plot2d.xColumn);
-  els.xIndexMode.checked = state.plot2d.useIndexX;
-  els.xSelect2d.disabled = state.plot2d.useIndexX || numericColumns.length === 0;
-  els.plotStyle2d.value = state.plot2d.style;
-
-  if (numericColumns.length === 0) {
-    els.yColumns2d.innerHTML = "<div class='muted'>No numeric columns detected.</div>";
-    state.plot2d.yColumns = new Set();
-    return;
-  }
-
-  const selected = new Set(state.plot2d.yColumns);
-  const html = numericColumns
-    .map(
-      (column) => `
-        <label class="checklist-item" title="${escapeHtml(column.name)}">
-          <input type="checkbox" data-col-index="${column.index}" ${selected.has(column.index) ? "checked" : ""} />
-          <span>${escapeHtml(column.name)}</span>
-        </label>
-      `
-    )
-    .join("");
-
-  els.yColumns2d.innerHTML = html;
-
-  els.yColumns2d.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
-      const col = Number(checkbox.dataset.colIndex);
-      if (checkbox.checked) {
-        state.plot2d.yColumns.add(col);
-      } else {
-        state.plot2d.yColumns.delete(col);
-      }
-      draw2D(buildViewRows());
-    });
-  });
-}
-
-function render3dSelectors(numericColumns) {
-  populateSelect(els.xSelect3d, numericColumns, state.plot3d.xColumn);
-  populateSelect(els.ySelect3d, numericColumns, state.plot3d.yColumn);
-  populateSelect(els.zSelect3d, numericColumns, state.plot3d.zColumn);
-  populateOptionalSelect(els.colorSelect3d, numericColumns, state.plot3d.colorColumn);
-  populateOptionalSelect(els.sizeSelect3d, numericColumns, state.plot3d.sizeColumn);
-}
 
 function populateSelect(selectEl, columns, selectedValue) {
   if (!columns.length) {
@@ -1332,8 +1441,8 @@ function renderViews() {
   updateExportButtonState(viewRows);
   renderTable(viewRows);
   renderQuickStats(viewRows);
-  draw2D(viewRows);
-  draw3D(viewRows);
+  drawAll2D(viewRows);
+  drawAll3D(viewRows);
 }
 
 function updateExportButtonState(viewRows) {
@@ -1481,58 +1590,58 @@ function statItem(label, value) {
   return `<div class="stat-item"><span class="stat-key">${escapeHtml(label)}</span><span class="stat-val">${value}</span></div>`;
 }
 
-function draw2D(viewRows) {
+function drawAll2D(viewRows) {
   if (state.tab === "plot2d") {
     updateExportButtonState(viewRows);
   }
+  state.plots2d.items.forEach((plotConfig) => drawSingle2D(plotConfig, viewRows));
+}
+
+function drawSingle2D(plotCfg, viewRows) {
+  const plotEl = getPlotElement(plotCfg.id);
+  const legendEl = getPlotLegend(plotCfg.id);
+  if (!plotEl) return;
 
   if (!window.Plotly) {
-    setPlotUnavailable(els.plot2d, "Plotly asset not loaded. Run npm install to provision local plotly.min.js.");
-    els.legend2d.textContent = "Plotly unavailable.";
-    els.subFilterMeta2d.textContent = "";
+    setPlotUnavailable(plotEl, "Plotly asset not loaded. Run npm install to provision local plotly.min.js.");
+    if (legendEl) legendEl.textContent = "Plotly unavailable.";
     return;
   }
 
   if (state.headers.length === 0) {
-    renderEmptyPlot(els.plot2d, "Load CSV data to render a chart.");
-    els.legend2d.textContent = "Select one or more numeric Y columns to plot.";
-    els.subFilterMeta2d.textContent = "";
+    renderEmptyPlot(plotEl, "Load CSV data to render a chart.");
+    if (legendEl) legendEl.textContent = "Select one or more numeric Y columns to plot.";
     return;
   }
 
-  const yColumns = [...state.plot2d.yColumns];
+  const yColumns = [...plotCfg.yColumns];
   if (yColumns.length === 0) {
-    renderEmptyPlot(els.plot2d, "Select at least one numeric Y column.");
-    els.legend2d.textContent = "No Y columns selected.";
-    els.subFilterMeta2d.textContent = "";
+    renderEmptyPlot(plotEl, "Select at least one numeric Y column.");
+    if (legendEl) legendEl.textContent = "No Y columns selected.";
     return;
   }
 
-  if (!state.plot2d.useIndexX && state.plot2d.xColumn === null) {
-    renderEmptyPlot(els.plot2d, "Select an X column or use row index.");
-    els.legend2d.textContent = "X axis is not configured.";
-    els.subFilterMeta2d.textContent = "";
+  if (!plotCfg.useIndexX && plotCfg.xColumn === null) {
+    renderEmptyPlot(plotEl, "Select an X column or use row index.");
+    if (legendEl) legendEl.textContent = "X axis is not configured.";
     return;
   }
 
-  const plotRows = subselectPlotRows(viewRows, state.plot2d.subFilterColumn, state.plot2d.subFilterQuery);
-  updateSubfilterMeta(
-    els.subFilterMeta2d,
-    plotRows.length,
-    viewRows.length,
-    state.plot2d.subFilterColumn,
-    state.plot2d.subFilterQuery
-  );
+  const plotRows = subselectPlotRows(viewRows, plotCfg.subFilterColumn, plotCfg.subFilterQuery);
+
+  if (plotCfg.id === state.plots2d.activeId) {
+    updateSubfilterMeta(els.subFilterMeta2d, plotRows.length, viewRows.length, plotCfg.subFilterColumn, plotCfg.subFilterQuery);
+  }
 
   if (plotRows.length === 0) {
-    renderEmptyPlot(els.plot2d, "No rows match the current Data filter + 2D subfilter.");
-    els.legend2d.textContent = `Using 0 of ${viewRows.length.toLocaleString()} filtered rows`;
+    renderEmptyPlot(plotEl, "No rows match the current Data filter + 2D subfilter.");
+    if (legendEl) legendEl.textContent = `Using 0 of ${viewRows.length.toLocaleString()} filtered rows`;
     return;
   }
 
   const traces = [];
   const styleMode =
-    state.plot2d.style === "line" ? "lines" : state.plot2d.style === "scatter" ? "markers" : "lines+markers";
+    plotCfg.style === "line" ? "lines" : plotCfg.style === "scatter" ? "markers" : "lines+markers";
 
   yColumns.forEach((yColumn, seriesIndex) => {
     const x = [];
@@ -1544,7 +1653,7 @@ function draw2D(viewRows) {
         return;
       }
 
-      const xValue = state.plot2d.useIndexX ? rowIndex + 1 : toNumber(entry.values[state.plot2d.xColumn]);
+      const xValue = plotCfg.useIndexX ? rowIndex + 1 : toNumber(entry.values[plotCfg.xColumn]);
       if (xValue === null) {
         return;
       }
@@ -1564,7 +1673,7 @@ function draw2D(viewRows) {
       type: "scatter",
       mode: styleMode,
       marker: {
-        size: state.plot2d.style === "line" ? 0 : 5,
+        size: plotCfg.style === "line" ? 0 : 5,
         color: palette[seriesIndex % palette.length],
       },
       line: {
@@ -1575,15 +1684,15 @@ function draw2D(viewRows) {
   });
 
   if (traces.length === 0) {
-    renderEmptyPlot(els.plot2d, "No numeric rows available for current selections.");
-    els.legend2d.textContent = "No plottable values were found.";
+    renderEmptyPlot(plotEl, "No numeric rows available for current selections.");
+    if (legendEl) legendEl.textContent = "No plottable values were found.";
     return;
   }
 
-  const xLabel = state.plot2d.useIndexX ? "Row index" : state.headers[state.plot2d.xColumn] || "X";
+  const xLabel = plotCfg.useIndexX ? "Row index" : state.headers[plotCfg.xColumn] || "X";
 
   window.Plotly.react(
-    els.plot2d,
+    plotEl,
     traces,
     {
       margin: { t: 34, r: 24, b: 48, l: 60 },
@@ -1607,47 +1716,50 @@ function draw2D(viewRows) {
     )
     .join("");
 
-  els.legend2d.innerHTML = `<div>Using ${plotRows.length.toLocaleString()} of ${viewRows.length.toLocaleString()} filtered rows · ${traces.length.toLocaleString()} series · ${totalPoints.toLocaleString()} points</div><div class="legend-grid">${items}</div>`;
+  if (legendEl) {
+    legendEl.innerHTML = `<div>Using ${plotRows.length.toLocaleString()} of ${viewRows.length.toLocaleString()} filtered rows · ${traces.length.toLocaleString()} series · ${totalPoints.toLocaleString()} points</div><div class="legend-grid">${items}</div>`;
+  }
 }
 
-function draw3D(viewRows) {
+function drawAll3D(viewRows) {
   if (state.tab === "plot3d") {
     updateExportButtonState(viewRows);
   }
+  state.plots3d.items.forEach((plotConfig) => drawSingle3D(plotConfig, viewRows));
+}
+
+function drawSingle3D(plotCfg, viewRows) {
+  const plotEl = getPlotElement(plotCfg.id);
+  const legendEl = getPlotLegend(plotCfg.id);
+  if (!plotEl) return;
 
   if (!window.Plotly) {
-    setPlotUnavailable(els.plot3d, "Plotly asset not loaded. Run npm install to provision local plotly.min.js.");
-    els.meta3d.textContent = "Plotly unavailable.";
-    els.subFilterMeta3d.textContent = "";
+    setPlotUnavailable(plotEl, "Plotly asset not loaded. Run npm install to provision local plotly.min.js.");
+    if (legendEl) legendEl.textContent = "Plotly unavailable.";
     return;
   }
 
   if (state.headers.length === 0) {
-    renderEmptyPlot(els.plot3d, "Load CSV data to render a 3D view.", true);
-    els.meta3d.textContent = "Select X, Y, and Z numeric columns.";
-    els.subFilterMeta3d.textContent = "";
+    renderEmptyPlot(plotEl, "Load CSV data to render a 3D view.", true);
+    if (legendEl) legendEl.textContent = "Select X, Y, and Z numeric columns.";
     return;
   }
 
-  if (state.plot3d.xColumn === null || state.plot3d.yColumn === null || state.plot3d.zColumn === null) {
-    renderEmptyPlot(els.plot3d, "Select numeric X, Y, and Z columns.", true);
-    els.meta3d.textContent = "3D axes are not fully configured.";
-    els.subFilterMeta3d.textContent = "";
+  if (plotCfg.xColumn === null || plotCfg.yColumn === null || plotCfg.zColumn === null) {
+    renderEmptyPlot(plotEl, "Select numeric X, Y, and Z columns.", true);
+    if (legendEl) legendEl.textContent = "3D axes are not fully configured.";
     return;
   }
 
-  const plotRows = subselectPlotRows(viewRows, state.plot3d.subFilterColumn, state.plot3d.subFilterQuery);
-  updateSubfilterMeta(
-    els.subFilterMeta3d,
-    plotRows.length,
-    viewRows.length,
-    state.plot3d.subFilterColumn,
-    state.plot3d.subFilterQuery
-  );
+  const plotRows = subselectPlotRows(viewRows, plotCfg.subFilterColumn, plotCfg.subFilterQuery);
+
+  if (plotCfg.id === state.plots3d.activeId) {
+    updateSubfilterMeta(els.subFilterMeta3d, plotRows.length, viewRows.length, plotCfg.subFilterColumn, plotCfg.subFilterQuery);
+  }
 
   if (plotRows.length === 0) {
-    renderEmptyPlot(els.plot3d, "No rows match the current Data filter + 3D subfilter.", true);
-    els.meta3d.textContent = `Using 0 of ${viewRows.length.toLocaleString()} filtered rows`;
+    renderEmptyPlot(plotEl, "No rows match the current Data filter + 3D subfilter.", true);
+    if (legendEl) legendEl.textContent = `Using 0 of ${viewRows.length.toLocaleString()} filtered rows`;
     return;
   }
 
@@ -1657,13 +1769,13 @@ function draw3D(viewRows) {
   const colorRaw = [];
   const sizeRaw = [];
 
-  const hasColor = state.plot3d.colorColumn !== null;
-  const hasSize = state.plot3d.sizeColumn !== null;
+  const hasColor = plotCfg.colorColumn !== null;
+  const hasSize = plotCfg.sizeColumn !== null;
 
   plotRows.forEach((entry) => {
-    const xValue = toNumber(entry.values[state.plot3d.xColumn]);
-    const yValue = toNumber(entry.values[state.plot3d.yColumn]);
-    const zValue = toNumber(entry.values[state.plot3d.zColumn]);
+    const xValue = toNumber(entry.values[plotCfg.xColumn]);
+    const yValue = toNumber(entry.values[plotCfg.yColumn]);
+    const zValue = toNumber(entry.values[plotCfg.zColumn]);
 
     if (xValue === null || yValue === null || zValue === null) {
       return;
@@ -1674,22 +1786,22 @@ function draw3D(viewRows) {
     z.push(zValue);
 
     if (hasColor) {
-      colorRaw.push(toNumber(entry.values[state.plot3d.colorColumn]));
+      colorRaw.push(toNumber(entry.values[plotCfg.colorColumn]));
     }
     if (hasSize) {
-      sizeRaw.push(toNumber(entry.values[state.plot3d.sizeColumn]));
+      sizeRaw.push(toNumber(entry.values[plotCfg.sizeColumn]));
     }
   });
 
   if (x.length === 0) {
-    renderEmptyPlot(els.plot3d, "No numeric rows available for selected axes.", true);
-    els.meta3d.textContent = "No plottable 3D points were found.";
+    renderEmptyPlot(plotEl, "No numeric rows available for selected axes.", true);
+    if (legendEl) legendEl.textContent = "No plottable 3D points were found.";
     return;
   }
 
   const marker = {
     opacity: 0.85,
-    size: state.plot3d.baseSize,
+    size: plotCfg.baseSize,
     color: "#0f766e",
   };
 
@@ -1700,7 +1812,7 @@ function draw3D(viewRows) {
       marker.color = colorRaw.map((value) => (value === null ? fallback : value));
       marker.colorscale = "Viridis";
       marker.colorbar = {
-        title: state.headers[state.plot3d.colorColumn],
+        title: state.headers[plotCfg.colorColumn],
         thickness: 10,
       };
       marker.showscale = true;
@@ -1713,7 +1825,7 @@ function draw3D(viewRows) {
       const min = Math.min(...validSizes);
       const max = Math.max(...validSizes);
       const span = max - min || 1;
-      const base = state.plot3d.baseSize;
+      const base = plotCfg.baseSize;
 
       marker.size = sizeRaw.map((value) => {
         if (value === null) {
@@ -1738,37 +1850,238 @@ function draw3D(viewRows) {
     margin: { t: 20, r: 16, b: 12, l: 8 },
     paper_bgcolor: "rgba(0,0,0,0)",
     scene: {
-      xaxis: { title: state.headers[state.plot3d.xColumn], gridcolor: "#e2e8f0" },
-      yaxis: { title: state.headers[state.plot3d.yColumn], gridcolor: "#e2e8f0" },
-      zaxis: { title: state.headers[state.plot3d.zColumn], gridcolor: "#e2e8f0" },
-      camera: state.plot3d.camera || { ...DEFAULT_3D_CAMERA },
+      xaxis: { title: state.headers[plotCfg.xColumn], gridcolor: "#e2e8f0" },
+      yaxis: { title: state.headers[plotCfg.yColumn], gridcolor: "#e2e8f0" },
+      zaxis: { title: state.headers[plotCfg.zColumn], gridcolor: "#e2e8f0" },
+      camera: plotCfg.camera || { ...DEFAULT_3D_CAMERA },
     },
   };
 
-  window.Plotly.react(els.plot3d, [trace], layout, plotConfig());
-  bind3dRelayoutHandler();
+  window.Plotly.react(plotEl, [trace], layout, plotConfig());
+  bind3dRelayoutHandler(plotCfg, plotEl);
 
-  const colorLabel = state.plot3d.colorColumn === null ? "none" : state.headers[state.plot3d.colorColumn];
-  const sizeLabel = state.plot3d.sizeColumn === null ? "none" : state.headers[state.plot3d.sizeColumn];
+  const colorLabel = plotCfg.colorColumn === null ? "none" : state.headers[plotCfg.colorColumn];
+  const sizeLabel = plotCfg.sizeColumn === null ? "none" : state.headers[plotCfg.sizeColumn];
 
-  els.meta3d.textContent = `Using ${plotRows.length.toLocaleString()} of ${viewRows.length.toLocaleString()} filtered rows · Points: ${x.length.toLocaleString()} · Axes: ${state.headers[state.plot3d.xColumn]}, ${state.headers[state.plot3d.yColumn]}, ${state.headers[state.plot3d.zColumn]} · Color: ${colorLabel} · Size: ${sizeLabel}`;
+  if (legendEl) {
+    legendEl.textContent = `Using ${plotRows.length.toLocaleString()} of ${viewRows.length.toLocaleString()} filtered rows · Points: ${x.length.toLocaleString()} · Axes: ${state.headers[plotCfg.xColumn]}, ${state.headers[plotCfg.yColumn]}, ${state.headers[plotCfg.zColumn]} · Color: ${colorLabel} · Size: ${sizeLabel}`;
+  }
 }
 
-function bind3dRelayoutHandler() {
-  if (state.plot3d.relayoutBound) {
+function bind3dRelayoutHandler(plotCfg, plotEl) {
+  if (plotCfg.relayoutBound) {
     return;
   }
-  if (typeof els.plot3d.on !== "function") {
+  if (!plotEl || typeof plotEl.on !== "function") {
     return;
   }
 
-  els.plot3d.on("plotly_relayout", (eventData) => {
+  plotEl.on("plotly_relayout", (eventData) => {
     if (eventData && eventData["scene.camera"]) {
-      state.plot3d.camera = eventData["scene.camera"];
+      plotCfg.camera = eventData["scene.camera"];
     }
   });
 
-  state.plot3d.relayoutBound = true;
+  plotCfg.relayoutBound = true;
+}
+
+function renderPlotGrid2d() {
+  const grid = els.plotGrid2d;
+  if (!grid) return;
+  const addBtn = document.getElementById("addPlot2dBtn");
+
+  const existingSlots = grid.querySelectorAll(".plot-slot:not(.plot-slot-add)");
+  const existingIds = new Set();
+  existingSlots.forEach((slot) => existingIds.add(slot.dataset.plotId));
+
+  const stateIds = new Set(state.plots2d.items.map((p) => p.id));
+
+  existingSlots.forEach((slot) => {
+    if (!stateIds.has(slot.dataset.plotId)) {
+      const plotEl = getPlotElement(slot.dataset.plotId);
+      if (plotEl && window.Plotly) {
+        try { window.Plotly.purge(plotEl); } catch (_) {}
+      }
+      slot.remove();
+    }
+  });
+
+  state.plots2d.items.forEach((p) => {
+    if (!existingIds.has(p.id)) {
+      const slot = document.createElement("div");
+      slot.className = "plot-slot";
+      slot.dataset.plotId = p.id;
+      slot.innerHTML = `
+        <button class="plot-slot-close" data-plot-id="${p.id}" title="Remove plot">&times;</button>
+        <div class="canvas-card"><div id="${p.id}" class="plot-surface"></div></div>
+        <div id="${p.id}-legend" class="plot-slot-legend"></div>
+      `;
+      slot.addEventListener("click", (e) => {
+        if (e.target.closest(".plot-slot-close")) return;
+        selectPlot2d(p.id);
+      });
+      grid.insertBefore(slot, addBtn);
+    }
+  });
+
+  const hideClose = state.plots2d.items.length <= 1;
+  grid.querySelectorAll(".plot-slot-close").forEach((btn) => {
+    btn.classList.toggle("hidden", hideClose);
+  });
+
+  grid.querySelectorAll(".plot-slot:not(.plot-slot-add)").forEach((slot) => {
+    slot.classList.toggle("active", slot.dataset.plotId === state.plots2d.activeId);
+  });
+
+  updatePlotHeight(grid, state.plots2d.items.length);
+}
+
+function renderPlotGrid3d() {
+  const grid = els.plotGrid3d;
+  if (!grid) return;
+  const addBtn = document.getElementById("addPlot3dBtn");
+
+  const existingSlots = grid.querySelectorAll(".plot-slot:not(.plot-slot-add)");
+  const existingIds = new Set();
+  existingSlots.forEach((slot) => existingIds.add(slot.dataset.plotId));
+
+  const stateIds = new Set(state.plots3d.items.map((p) => p.id));
+
+  existingSlots.forEach((slot) => {
+    if (!stateIds.has(slot.dataset.plotId)) {
+      const plotEl = getPlotElement(slot.dataset.plotId);
+      if (plotEl && window.Plotly) {
+        try { window.Plotly.purge(plotEl); } catch (_) {}
+      }
+      slot.remove();
+    }
+  });
+
+  state.plots3d.items.forEach((p) => {
+    if (!existingIds.has(p.id)) {
+      const slot = document.createElement("div");
+      slot.className = "plot-slot";
+      slot.dataset.plotId = p.id;
+      slot.innerHTML = `
+        <button class="plot-slot-close" data-plot-id="${p.id}" title="Remove plot">&times;</button>
+        <div class="canvas-card"><div id="${p.id}" class="plot-surface"></div></div>
+        <div id="${p.id}-legend" class="plot-slot-legend"></div>
+      `;
+      slot.addEventListener("click", (e) => {
+        if (e.target.closest(".plot-slot-close")) return;
+        selectPlot3d(p.id);
+      });
+      grid.insertBefore(slot, addBtn);
+    }
+  });
+
+  const hideClose = state.plots3d.items.length <= 1;
+  grid.querySelectorAll(".plot-slot-close").forEach((btn) => {
+    btn.classList.toggle("hidden", hideClose);
+  });
+
+  grid.querySelectorAll(".plot-slot:not(.plot-slot-add)").forEach((slot) => {
+    slot.classList.toggle("active", slot.dataset.plotId === state.plots3d.activeId);
+  });
+
+  updatePlotHeight(grid, state.plots3d.items.length);
+}
+
+function updatePlotHeight(grid, count) {
+  const height = count > 2 ? "clamp(260px, 40vh, 440px)" : "clamp(320px, 54vh, 620px)";
+  grid.style.setProperty("--plot-height", height);
+}
+
+function selectPlot2d(id) {
+  state.plots2d.activeId = id;
+  const grid = els.plotGrid2d;
+  if (grid) {
+    grid.querySelectorAll(".plot-slot:not(.plot-slot-add)").forEach((slot) => {
+      slot.classList.toggle("active", slot.dataset.plotId === id);
+    });
+  }
+  syncControlsToActivePlot2d();
+}
+
+function selectPlot3d(id) {
+  state.plots3d.activeId = id;
+  const grid = els.plotGrid3d;
+  if (grid) {
+    grid.querySelectorAll(".plot-slot:not(.plot-slot-add)").forEach((slot) => {
+      slot.classList.toggle("active", slot.dataset.plotId === id);
+    });
+  }
+  syncControlsToActivePlot3d();
+}
+
+function removePlot2d(id) {
+  if (state.plots2d.items.length <= 1) return;
+  const plotEl = getPlotElement(id);
+  if (plotEl && window.Plotly) {
+    try { window.Plotly.purge(plotEl); } catch (_) {}
+  }
+  state.plots2d.items = state.plots2d.items.filter((p) => p.id !== id);
+  if (state.plots2d.activeId === id) {
+    state.plots2d.activeId = state.plots2d.items[0].id;
+  }
+  renderPlotGrid2d();
+  syncControlsToActivePlot2d();
+  drawAll2D(buildViewRows());
+}
+
+function removePlot3d(id) {
+  if (state.plots3d.items.length <= 1) return;
+  const plotEl = getPlotElement(id);
+  if (plotEl && window.Plotly) {
+    try { window.Plotly.purge(plotEl); } catch (_) {}
+  }
+  state.plots3d.items = state.plots3d.items.filter((p) => p.id !== id);
+  if (state.plots3d.activeId === id) {
+    state.plots3d.activeId = state.plots3d.items[0].id;
+  }
+  renderPlotGrid3d();
+  syncControlsToActivePlot3d();
+  drawAll3D(buildViewRows());
+}
+
+function bindPlotGridControls() {
+  const addBtn2d = document.getElementById("addPlot2dBtn");
+  if (addBtn2d) {
+    addBtn2d.addEventListener("click", () => {
+      const id = `plot2d-${state.plots2d.nextId++}`;
+      const cfg = createPlot2dConfig(id);
+      state.plots2d.items.push(cfg);
+      state.plots2d.activeId = id;
+      renderPlotGrid2d();
+      syncControlsToActivePlot2d();
+      drawSingle2D(cfg, buildViewRows());
+    });
+  }
+
+  const addBtn3d = document.getElementById("addPlot3dBtn");
+  if (addBtn3d) {
+    addBtn3d.addEventListener("click", () => {
+      const id = `plot3d-${state.plots3d.nextId++}`;
+      const cfg = createPlot3dConfig(id);
+      state.plots3d.items.push(cfg);
+      state.plots3d.activeId = id;
+      renderPlotGrid3d();
+      syncControlsToActivePlot3d();
+      drawSingle3D(cfg, buildViewRows());
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    const closeBtn = e.target.closest(".plot-slot-close");
+    if (!closeBtn) return;
+    const plotId = closeBtn.dataset.plotId;
+    if (!plotId) return;
+    if (plotId.startsWith("plot2d-")) {
+      removePlot2d(plotId);
+    } else if (plotId.startsWith("plot3d-")) {
+      removePlot3d(plotId);
+    }
+  });
 }
 
 function plotConfig() {
@@ -1824,10 +2137,12 @@ function getExportRowsForActiveTab(precomputedBaseRows) {
   const baseRows = precomputedBaseRows || buildViewRows();
 
   if (state.tab === "plot2d") {
-    return subselectPlotRows(baseRows, state.plot2d.subFilterColumn, state.plot2d.subFilterQuery);
+    const p = getActivePlot2d();
+    return p ? subselectPlotRows(baseRows, p.subFilterColumn, p.subFilterQuery) : baseRows;
   }
   if (state.tab === "plot3d") {
-    return subselectPlotRows(baseRows, state.plot3d.subFilterColumn, state.plot3d.subFilterQuery);
+    const p = getActivePlot3d();
+    return p ? subselectPlotRows(baseRows, p.subFilterColumn, p.subFilterQuery) : baseRows;
   }
   return baseRows;
 }

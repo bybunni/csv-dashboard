@@ -10,3 +10,4 @@ app-web/vendor/plotly.min.js
 src-tauri/target/
 src-tauri/gen/
 AGENTS.md
+release-notes/
