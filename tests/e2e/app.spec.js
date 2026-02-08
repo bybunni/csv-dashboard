@@ -24,7 +24,7 @@ test("renders 2D controls and plot legend", async ({ page }) => {
   await page.click("button[data-tab='plot2d']");
 
   await expect(page.locator("#yColumns2d input[type='checkbox']").first()).toBeVisible();
-  await expect(page.locator("#legend2d")).toContainText("series");
+  await expect(page.locator("#plot2d-0-legend")).toContainText("series");
 });
 
 test("renders 3D metadata after axis selection defaults", async ({ page }) => {
@@ -32,7 +32,7 @@ test("renders 3D metadata after axis selection defaults", async ({ page }) => {
   await page.click("button[data-tab='plot3d']");
 
   await expect(page.locator("#xSelect3d")).toBeEnabled();
-  await expect(page.locator("#meta3d")).toContainText("Points:");
+  await expect(page.locator("#plot3d-0-legend")).toContainText("Points:");
 });
 
 test("applies column filters, sort, and updates quick stats", async ({ page }) => {
@@ -59,16 +59,16 @@ test("builds plots from Data filters and allows plot-level subselect", async ({ 
   await expect(page.locator("#tableMeta")).toContainText("2 of 6 rows");
 
   await page.click("button[data-tab='plot2d']");
-  await expect(page.locator("#legend2d")).toContainText("Using 2 of 2 filtered rows");
+  await expect(page.locator("#plot2d-0-legend")).toContainText("Using 2 of 2 filtered rows");
 
   await page.selectOption("#subFilterColumn2d", "2");
   await page.fill("#subFilterQuery2d", ">=101.7");
-  await expect(page.locator("#legend2d")).toContainText("Using 1 of 2 filtered rows");
+  await expect(page.locator("#plot2d-0-legend")).toContainText("Using 1 of 2 filtered rows");
 
   await page.click("button[data-tab='plot3d']");
   await page.selectOption("#subFilterColumn3d", "2");
   await page.fill("#subFilterQuery3d", ">=101.7");
-  await expect(page.locator("#meta3d")).toContainText("Using 1 of 2 filtered rows");
+  await expect(page.locator("#plot3d-0-legend")).toContainText("Using 1 of 2 filtered rows");
 });
 
 test("supports comma-compound filters in Data and plot subfilters", async ({ page }) => {
@@ -83,7 +83,7 @@ test("supports comma-compound filters in Data and plot subfilters", async ({ pag
   await page.click("button[data-tab='plot2d']");
   await page.selectOption("#subFilterColumn2d", "2");
   await page.fill("#subFilterQuery2d", ">101.2,<101.6");
-  await expect(page.locator("#legend2d")).toContainText("Using 1 of 2 filtered rows");
+  await expect(page.locator("#plot2d-0-legend")).toContainText("Using 1 of 2 filtered rows");
 });
 
 test("hides columns from the table and plotting selectors", async ({ page }) => {
@@ -114,7 +114,7 @@ test("applies YAML preset configs from a user-selected directory", async ({ page
   await expect(page.locator("#tableContainer tbody tr").first().locator("td").nth(2)).toHaveText("101.7");
 
   await page.click("button[data-tab='plot2d']");
-  await expect(page.locator("#legend2d")).toContainText("Using 1 of 2 filtered rows");
+  await expect(page.locator("#plot2d-0-legend")).toContainText("Using 1 of 2 filtered rows");
 });
 
 test("exports the current filtered and sorted view to csv", async ({ page }) => {
