@@ -10,6 +10,7 @@
   --warning: #92400e;
   --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   --radius: 12px;
+  --row-index-width: 88px;
 }
 
 * {
@@ -271,10 +272,11 @@ body {
 }
 
 .row-index {
-  width: 1%;
-  min-width: 0;
-  max-width: none;
+  width: var(--row-index-width);
+  min-width: var(--row-index-width);
+  max-width: var(--row-index-width);
   text-align: right;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
   background: #fbfdff;
   position: sticky;
