@@ -13,7 +13,7 @@ Run the project regression suite locally and in CI-compatible mode.
 ## Setup
 
 ```bash
-cd /Users/bunni/workspace/csv-dasboard
+cd /Users/bunni/workspace/csv-dashboard
 npm install
 npx playwright install --with-deps chromium
 ```
@@ -54,4 +54,3 @@ npm run test:e2e:headed
 
 - Unit tests pass with Vitest.
 - E2E tests pass with Playwright against the local web server started by Playwright config.
-

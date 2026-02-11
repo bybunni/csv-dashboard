@@ -16,7 +16,7 @@ Trigger conditions:
 ## Pre-Release Checklist
 
 ```bash
-cd /Users/bunni/workspace/csv-dasboard
+cd /Users/bunni/workspace/csv-dashboard
 git checkout main
 git pull origin main
 npm test

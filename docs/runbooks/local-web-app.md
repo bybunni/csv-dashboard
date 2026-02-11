@@ -12,7 +12,7 @@ Run the browser-only local CSV explorer without using Tauri.
 ## Start the App
 
 ```bash
-cd /Users/bunni/workspace/csv-dasboard
+cd /Users/bunni/workspace/csv-dashboard
 npm install
 npm run serve
 ```
@@ -30,4 +30,3 @@ Open:
 ## Stop the App
 
 - Press `Ctrl+C` in the terminal running `npm run serve`.
-

@@ -14,7 +14,7 @@ Build standalone desktop release binaries (no installer artifacts).
 ## Local Build
 
 ```bash
-cd /Users/bunni/workspace/csv-dasboard
+cd /Users/bunni/workspace/csv-dashboard
 npm install
 npm run tauri:build
 ```
@@ -30,4 +30,3 @@ With current config (`src-tauri/tauri.conf.json` has `bundle.active: false`), pr
 
 - `npm run tauri:dev` is for local development, not release binaries.
 - Multi-platform release binaries are produced by GitHub Actions in `.github/workflows/release-binaries.yml`.
-

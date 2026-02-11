@@ -13,8 +13,8 @@ No Node.js process manager or backend runtime is required in production.
 
 ## Files in This Repo
 
-- Nginx site config: `/Users/bunni/workspace/csv-dasboard/deploy/nginx/csv-dashboard.conf`
-- Deploy script: `/Users/bunni/workspace/csv-dasboard/scripts/deploy-static-release.sh`
+- Nginx site config: `/Users/bunni/workspace/csv-dashboard/deploy/nginx/csv-dashboard.conf`
+- Deploy script: `/Users/bunni/workspace/csv-dashboard/scripts/deploy-static-release.sh`
 
 ## 1) One-time Server Setup
 
