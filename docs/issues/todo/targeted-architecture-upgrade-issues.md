@@ -1,6 +1,6 @@
 # Issue Set: Targeted Architecture Upgrade
 
-Status: `in-progress`  
+Status: `todo`  
 Source: Set 2 from `docs/performance-report.md`
 
 ## User Story
@@ -28,4 +28,3 @@ Validation will be complete when all checks below pass on large fixtures (includ
 - Performance checks:
   - Scroll FPS and interaction latency are improved vs baseline report.
   - Large-view redraw no longer relies on full `innerHTML` replacement of 2000-row table slices.
-

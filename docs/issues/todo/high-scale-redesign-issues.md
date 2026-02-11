@@ -1,6 +1,6 @@
 # Issue Set: High-Scale Redesign
 
-Status: `done (definition complete, implementation pending)`  
+Status: `todo`  
 Source: Set 3 from `docs/performance-report.md`
 
 ## User Story
@@ -29,4 +29,3 @@ Validation will be complete when all checks below pass in a high-scale benchmark
 - Performance targets:
   - Defined p95 latency goals are met for filter apply, sort apply, and initial render at high-scale fixture sizes.
   - Long-task time and dropped-frame rates are materially below current baseline.
-
