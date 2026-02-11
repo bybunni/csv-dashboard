@@ -1,22 +1,29 @@
 import { toNumber } from "./csv-core.js";
 
-export function buildViewRows({ rows, columns, filters, sortColumn, sortDirection }) {
+export function buildViewRows({ rows, columns, filters, sortColumn, sortDirection, compiledFilters }) {
   if (!rows || rows.length === 0) {
     return [];
   }
 
-  let viewRows = rows
-    .map((values, index) => ({
+  const activeFilters = Array.isArray(compiledFilters) ? compiledFilters : compileActiveFilters(columns, filters);
+  const viewRows = [];
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const values = rows[rowIndex];
+    if (!rowMatchesCompiledFilters(values, activeFilters)) {
+      continue;
+    }
+    viewRows.push({
       values,
-      sourceIndex: index + 1,
-    }))
-    .filter((entry) => rowMatchesFilters(entry.values, columns, filters));
+      sourceIndex: rowIndex + 1,
+    });
+  }
 
   if (sortColumn !== null && sortDirection !== "none") {
     const type = columns[sortColumn]?.type || "string";
     const direction = sortDirection === "desc" ? -1 : 1;
 
-    viewRows = viewRows.slice().sort((left, right) => {
+    viewRows.sort((left, right) => {
       const leftValue = left.values[sortColumn];
       const rightValue = right.values[sortColumn];
 
@@ -52,54 +59,104 @@ export function buildViewRows({ rows, columns, filters, sortColumn, sortDirectio
   return viewRows;
 }
 
-export function rowMatchesFilters(rowValues, columns, filters) {
+export function compileActiveFilters(columns, filters) {
+  const compiled = [];
+  if (!Array.isArray(columns) || columns.length === 0) {
+    return compiled;
+  }
+
   for (let index = 0; index < columns.length; index += 1) {
-    const query = String(filters[index] || "").trim();
+    const query = String(filters?.[index] || "").trim();
     if (!query) {
       continue;
     }
 
     const type = columns[index]?.type || "string";
-    const cell = rowValues[index] || "";
+    const compiledQuery = compileFilterQuery(query, type);
+    if (!compiledQuery) {
+      continue;
+    }
 
-    if (!cellMatchesFilter(cell, query, type)) {
+    compiled.push({
+      index,
+      compiledQuery,
+    });
+  }
+
+  return compiled;
+}
+
+export function rowMatchesCompiledFilters(rowValues, activeFilters) {
+  if (!Array.isArray(activeFilters) || activeFilters.length === 0) {
+    return true;
+  }
+
+  for (let i = 0; i < activeFilters.length; i += 1) {
+    const active = activeFilters[i];
+    const cell = rowValues[active.index] || "";
+    if (!cellMatchesCompiledFilter(cell, active.compiledQuery)) {
       return false;
     }
   }
   return true;
 }
 
-export function cellMatchesFilter(cell, query, type) {
-  const text = String(cell);
-  const normalizedText = text.toLowerCase();
-  const tokens = splitFilterTokens(query);
+export function rowMatchesFilters(rowValues, columns, filters) {
+  return rowMatchesCompiledFilters(rowValues, compileActiveFilters(columns, filters));
+}
 
-  if (tokens.length === 0) {
+export function cellMatchesFilter(cell, query, type) {
+  const compiled = compileFilterQuery(query, type);
+  if (!compiled) {
     return true;
   }
+  return cellMatchesCompiledFilter(cell, compiled);
+}
+
+function compileFilterQuery(query, type) {
+  const tokens = splitFilterTokens(query);
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  const compiled = {
+    type,
+    tokens,
+    textTokens: tokens.map((token) => token.toLowerCase()),
+    numericFilters: null,
+    allNumericEquality: false,
+  };
 
   if (type === "number") {
-    const numericValue = toNumber(text);
-    const parsed = tokens.map((token) => parseNumericFilter(token));
-    const allNumericFilters = parsed.every((filter) => filter !== null);
-
-    if (allNumericFilters) {
-      if (numericValue === null) {
-        return false;
-      }
-
-      const filters = parsed;
-      const allEquality = filters.every((filter) => filter.kind === "cmp" && filter.op === "=");
-
-      if (allEquality) {
-        return filters.some((filter) => applyNumericFilter(numericValue, filter));
-      }
-
-      return filters.every((filter) => applyNumericFilter(numericValue, filter));
+    const parsedNumericFilters = tokens.map((token) => parseNumericFilter(token));
+    const allNumeric = parsedNumericFilters.every((filter) => filter !== null);
+    if (allNumeric) {
+      compiled.numericFilters = parsedNumericFilters;
+      compiled.allNumericEquality = parsedNumericFilters.every((filter) => filter.kind === "cmp" && filter.op === "=");
     }
   }
 
-  return tokens.some((token) => normalizedText.includes(token.toLowerCase()));
+  return compiled;
+}
+
+function cellMatchesCompiledFilter(cell, compiled) {
+  const text = String(cell);
+
+  if (compiled.numericFilters) {
+    const numericValue = toNumber(text);
+    if (numericValue === null) {
+      return false;
+    }
+
+    if (compiled.allNumericEquality) {
+      return compiled.numericFilters.some((filter) => applyNumericFilter(numericValue, filter));
+    }
+
+    return compiled.numericFilters.every((filter) => applyNumericFilter(numericValue, filter));
+  }
+
+  const normalizedText = text.toLowerCase();
+  return compiled.textTokens.some((token) => normalizedText.includes(token));
 }
 
 export function parseNumericFilter(query) {

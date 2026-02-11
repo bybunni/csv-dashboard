@@ -3,9 +3,11 @@ import {
   applyNumericFilter,
   buildViewRows,
   cellMatchesFilter,
+  compileActiveFilters,
   compareCellValues,
   computeQuickStats,
   parseNumericFilter,
+  rowMatchesCompiledFilters,
   splitFilterTokens,
 } from "../../app-web/lib/data-ops.js";
 
@@ -107,6 +109,29 @@ describe("row building", () => {
     });
 
     expect(view.map((entry) => entry.values[1])).toEqual(["30", "25", "10", ""]);
+  });
+
+  it("supports precompiled active filters in buildViewRows", () => {
+    const filters = { 0: "al", 1: ">=10", 2: "" };
+    const compiledFilters = compileActiveFilters(columns, filters);
+    const view = buildViewRows({
+      rows,
+      columns,
+      filters,
+      compiledFilters,
+      sortColumn: null,
+      sortDirection: "none",
+    });
+
+    expect(view.map((entry) => entry.sourceIndex)).toEqual([1, 3]);
+  });
+});
+
+describe("compiled filter matching", () => {
+  it("evaluates only active filters against a row", () => {
+    const activeFilters = compileActiveFilters(columns, { 0: "", 1: ">20", 2: "alpha,beta" });
+    expect(rowMatchesCompiledFilters(rows[0], activeFilters)).toBe(false);
+    expect(rowMatchesCompiledFilters(rows[1], activeFilters)).toBe(true);
   });
 });
 

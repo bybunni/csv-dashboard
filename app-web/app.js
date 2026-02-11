@@ -7,10 +7,18 @@ import {
   toNumber,
   valueToNullableNumber,
 } from "./lib/csv-core.js";
-import { buildViewRows as buildViewRowsForOps, cellMatchesFilter, computeQuickStats } from "./lib/data-ops.js";
+import {
+  buildViewRows as buildViewRowsForOps,
+  cellMatchesFilter,
+  compileActiveFilters,
+  computeQuickStats,
+} from "./lib/data-ops.js";
 import { parseYamlDocument, stringifyYamlDocument } from "./lib/preset-config.js";
 
 const MAX_TABLE_ROWS = 2000;
+const FILTER_INPUT_DEBOUNCE_MS = 180;
+const PLOT_SUBFILTER_DEBOUNCE_MS = 140;
+const SCATTER_GL_POINT_THRESHOLD = 5000;
 const YAML_EXTENSION_RE = /\.ya?ml$/i;
 const DEFAULT_3D_CAMERA = {
   eye: { x: 1.65, y: 1.45, z: 1.2 },
@@ -38,6 +46,7 @@ const state = {
   tab: "data",
   dataOps: {
     filters: {},
+    compiledFilters: [],
     columnVisibility: {},
     columnVisibilityQuery: "",
     sortColumn: null,
@@ -118,6 +127,80 @@ const els = {
   reset3dView: document.getElementById("reset3dView"),
   plotGrid3d: document.getElementById("plotGrid3d"),
 };
+
+let renderDebounceTimer = null;
+let renderFrameToken = null;
+let draw2dDebounceTimer = null;
+let draw3dDebounceTimer = null;
+
+function requestRenderViewsInFrame() {
+  if (renderFrameToken !== null) {
+    return;
+  }
+  renderFrameToken = window.requestAnimationFrame(() => {
+    renderFrameToken = null;
+    renderViews();
+  });
+}
+
+function scheduleRenderViews({ debounceMs = 0 } = {}) {
+  if (renderDebounceTimer !== null) {
+    window.clearTimeout(renderDebounceTimer);
+    renderDebounceTimer = null;
+  }
+  if (debounceMs > 0) {
+    renderDebounceTimer = window.setTimeout(() => {
+      renderDebounceTimer = null;
+      requestRenderViewsInFrame();
+    }, debounceMs);
+    return;
+  }
+  requestRenderViewsInFrame();
+}
+
+function drawActive2DView({ debounceMs = 0 } = {}) {
+  const run = () => {
+    const p = getActivePlot2d();
+    if (!p) return;
+    drawSingle2D(p, buildViewRows());
+  };
+  if (draw2dDebounceTimer !== null) {
+    window.clearTimeout(draw2dDebounceTimer);
+    draw2dDebounceTimer = null;
+  }
+  if (debounceMs > 0) {
+    draw2dDebounceTimer = window.setTimeout(() => {
+      draw2dDebounceTimer = null;
+      run();
+    }, debounceMs);
+    return;
+  }
+  run();
+}
+
+function drawActive3DView({ debounceMs = 0 } = {}) {
+  const run = () => {
+    const p = getActivePlot3d();
+    if (!p) return;
+    drawSingle3D(p, buildViewRows());
+  };
+  if (draw3dDebounceTimer !== null) {
+    window.clearTimeout(draw3dDebounceTimer);
+    draw3dDebounceTimer = null;
+  }
+  if (debounceMs > 0) {
+    draw3dDebounceTimer = window.setTimeout(() => {
+      draw3dDebounceTimer = null;
+      run();
+    }, debounceMs);
+    return;
+  }
+  run();
+}
+
+function refreshCompiledFilters() {
+  state.dataOps.compiledFilters = compileActiveFilters(state.columns, state.dataOps.filters);
+}
 
 function getActivePlot2d() {
   return state.plots2d.items.find((p) => p.id === state.plots2d.activeId) || state.plots2d.items[0] || null;
@@ -254,14 +337,13 @@ function setTab(tab) {
     panel.classList.toggle("active", key === tab);
   });
 
-  const viewRows = buildViewRows();
   if (tab === "plot2d") {
-    drawAll2D(viewRows);
+    syncControlsToActivePlot2d();
   }
   if (tab === "plot3d") {
-    drawAll3D(viewRows);
+    syncControlsToActivePlot3d();
   }
-  updateExportButtonState(viewRows);
+  renderViews();
 }
 
 function bindDropZone() {
@@ -311,7 +393,7 @@ function bindDataControls() {
     });
     applyColumnVisibilityEffects();
     refreshSelectors();
-    renderViews();
+    scheduleRenderViews();
   });
 
   els.hideAllColumnsBtn.addEventListener("click", () => {
@@ -320,7 +402,7 @@ function bindDataControls() {
     });
     applyColumnVisibilityEffects();
     refreshSelectors();
-    renderViews();
+    scheduleRenderViews();
   });
 
   els.columnVisibilityControls.addEventListener("change", (event) => {
@@ -335,17 +417,17 @@ function bindDataControls() {
     state.dataOps.columnVisibility[colIndex] = target.checked;
     applyColumnVisibilityEffects();
     refreshSelectors();
-    renderViews();
+    scheduleRenderViews();
   });
 
   els.sortColumnSelect.addEventListener("change", () => {
     state.dataOps.sortColumn = valueToNullableNumber(els.sortColumnSelect.value);
-    renderViews();
+    scheduleRenderViews();
   });
 
   els.sortDirectionSelect.addEventListener("change", () => {
     state.dataOps.sortDirection = els.sortDirectionSelect.value;
-    renderViews();
+    scheduleRenderViews();
   });
 
   els.clearSortBtn.addEventListener("click", () => {
@@ -353,7 +435,7 @@ function bindDataControls() {
     state.dataOps.sortDirection = "none";
     els.sortColumnSelect.value = "";
     els.sortDirectionSelect.value = "none";
-    renderViews();
+    scheduleRenderViews();
   });
 
   els.clearFiltersBtn.addEventListener("click", () => {
@@ -363,7 +445,8 @@ function bindDataControls() {
     els.filterControls.querySelectorAll("input[data-col-index]").forEach((input) => {
       input.value = "";
     });
-    renderViews();
+    refreshCompiledFilters();
+    scheduleRenderViews();
   });
 
   els.filterControls.addEventListener("input", (event) => {
@@ -376,13 +459,17 @@ function bindDataControls() {
       return;
     }
     state.dataOps.filters[colIndex] = target.value;
-    renderViews();
+    refreshCompiledFilters();
+    scheduleRenderViews({ debounceMs: FILTER_INPUT_DEBOUNCE_MS });
   });
 
   els.statsColumnSelect.addEventListener("change", () => {
     state.dataOps.statsColumn = valueToNullableNumber(els.statsColumnSelect.value);
-    const viewRows = buildViewRows();
-    renderQuickStats(viewRows);
+    if (state.tab === "data") {
+      renderQuickStats(buildViewRows());
+      return;
+    }
+    scheduleRenderViews();
   });
 }
 
@@ -392,35 +479,35 @@ function bind2dControls() {
     if (!p) return;
     p.useIndexX = els.xIndexMode.checked;
     els.xSelect2d.disabled = p.useIndexX;
-    drawSingle2D(p, buildViewRows());
+    drawActive2DView();
   });
 
   els.xSelect2d.addEventListener("change", () => {
     const p = getActivePlot2d();
     if (!p) return;
     p.xColumn = valueToNullableNumber(els.xSelect2d.value);
-    drawSingle2D(p, buildViewRows());
+    drawActive2DView();
   });
 
   els.plotStyle2d.addEventListener("change", () => {
     const p = getActivePlot2d();
     if (!p) return;
     p.style = els.plotStyle2d.value;
-    drawSingle2D(p, buildViewRows());
+    drawActive2DView();
   });
 
   els.subFilterColumn2d.addEventListener("change", () => {
     const p = getActivePlot2d();
     if (!p) return;
     p.subFilterColumn = valueToNullableNumber(els.subFilterColumn2d.value);
-    drawSingle2D(p, buildViewRows());
+    drawActive2DView();
   });
 
   els.subFilterQuery2d.addEventListener("input", () => {
     const p = getActivePlot2d();
     if (!p) return;
     p.subFilterQuery = els.subFilterQuery2d.value;
-    drawSingle2D(p, buildViewRows());
+    drawActive2DView({ debounceMs: PLOT_SUBFILTER_DEBOUNCE_MS });
   });
 
   els.clearSubFilter2d.addEventListener("click", () => {
@@ -430,7 +517,7 @@ function bind2dControls() {
     p.subFilterQuery = "";
     els.subFilterColumn2d.value = "";
     els.subFilterQuery2d.value = "";
-    drawSingle2D(p, buildViewRows());
+    drawActive2DView();
   });
 }
 
@@ -439,35 +526,35 @@ function bind3dControls() {
     const p = getActivePlot3d();
     if (!p) return;
     p.xColumn = valueToNullableNumber(els.xSelect3d.value);
-    drawSingle3D(p, buildViewRows());
+    drawActive3DView();
   });
 
   els.ySelect3d.addEventListener("change", () => {
     const p = getActivePlot3d();
     if (!p) return;
     p.yColumn = valueToNullableNumber(els.ySelect3d.value);
-    drawSingle3D(p, buildViewRows());
+    drawActive3DView();
   });
 
   els.zSelect3d.addEventListener("change", () => {
     const p = getActivePlot3d();
     if (!p) return;
     p.zColumn = valueToNullableNumber(els.zSelect3d.value);
-    drawSingle3D(p, buildViewRows());
+    drawActive3DView();
   });
 
   els.colorSelect3d.addEventListener("change", () => {
     const p = getActivePlot3d();
     if (!p) return;
     p.colorColumn = valueToNullableNumber(els.colorSelect3d.value);
-    drawSingle3D(p, buildViewRows());
+    drawActive3DView();
   });
 
   els.sizeSelect3d.addEventListener("change", () => {
     const p = getActivePlot3d();
     if (!p) return;
     p.sizeColumn = valueToNullableNumber(els.sizeSelect3d.value);
-    drawSingle3D(p, buildViewRows());
+    drawActive3DView();
   });
 
   els.pointSize3d.addEventListener("input", () => {
@@ -475,28 +562,28 @@ function bind3dControls() {
     if (!p) return;
     p.baseSize = Number(els.pointSize3d.value);
     els.pointSizeValue3d.textContent = String(p.baseSize);
-    drawSingle3D(p, buildViewRows());
+    drawActive3DView();
   });
 
   els.reset3dView.addEventListener("click", () => {
     const p = getActivePlot3d();
     if (!p) return;
     p.camera = { ...DEFAULT_3D_CAMERA };
-    drawSingle3D(p, buildViewRows());
+    drawActive3DView();
   });
 
   els.subFilterColumn3d.addEventListener("change", () => {
     const p = getActivePlot3d();
     if (!p) return;
     p.subFilterColumn = valueToNullableNumber(els.subFilterColumn3d.value);
-    drawSingle3D(p, buildViewRows());
+    drawActive3DView();
   });
 
   els.subFilterQuery3d.addEventListener("input", () => {
     const p = getActivePlot3d();
     if (!p) return;
     p.subFilterQuery = els.subFilterQuery3d.value;
-    drawSingle3D(p, buildViewRows());
+    drawActive3DView({ debounceMs: PLOT_SUBFILTER_DEBOUNCE_MS });
   });
 
   els.clearSubFilter3d.addEventListener("click", () => {
@@ -506,7 +593,7 @@ function bind3dControls() {
     p.subFilterQuery = "";
     els.subFilterColumn3d.value = "";
     els.subFilterQuery3d.value = "";
-    drawSingle3D(p, buildViewRows());
+    drawActive3DView();
   });
 }
 
@@ -573,6 +660,7 @@ function clearLoadedData() {
   state.columns = [];
 
   state.dataOps.filters = {};
+  state.dataOps.compiledFilters = [];
   state.dataOps.columnVisibility = {};
   state.dataOps.columnVisibilityQuery = "";
   state.dataOps.sortColumn = null;
@@ -1083,6 +1171,7 @@ function initializeDataOps() {
     columnVisibility[index] = true;
   });
   state.dataOps.filters = filters;
+  state.dataOps.compiledFilters = [];
   state.dataOps.columnVisibility = columnVisibility;
   state.dataOps.columnVisibilityQuery = "";
   state.dataOps.sortColumn = null;
@@ -1090,6 +1179,7 @@ function initializeDataOps() {
 
   const firstNumeric = state.columns.find((column) => column.type === "number");
   state.dataOps.statsColumn = firstNumeric ? firstNumeric.index : state.headers.length ? 0 : null;
+  refreshCompiledFilters();
 }
 
 function initializePlotSelections() {
@@ -1173,6 +1263,8 @@ function applyColumnVisibilityEffects() {
       p.sizeColumn = null;
     }
   });
+
+  refreshCompiledFilters();
 }
 
 function refreshSelectors() {
@@ -1272,7 +1364,7 @@ function syncControlsToActivePlot2d() {
       } else {
         active.yColumns.delete(col);
       }
-      drawSingle2D(active, buildViewRows());
+      drawActive2DView();
     });
   });
 
@@ -1439,10 +1531,19 @@ function populateColumnSelectWithNone(selectEl, columns, selectedValue) {
 function renderViews() {
   const viewRows = buildViewRows();
   updateExportButtonState(viewRows);
+
+  if (state.tab === "plot2d") {
+    drawAll2D(viewRows);
+    return;
+  }
+
+  if (state.tab === "plot3d") {
+    drawAll3D(viewRows);
+    return;
+  }
+
   renderTable(viewRows);
   renderQuickStats(viewRows);
-  drawAll2D(viewRows);
-  drawAll3D(viewRows);
 }
 
 function updateExportButtonState(viewRows) {
@@ -1455,6 +1556,7 @@ function buildViewRows() {
     rows: state.rows,
     columns: state.columns,
     filters: state.dataOps.filters,
+    compiledFilters: state.dataOps.compiledFilters,
     sortColumn: state.dataOps.sortColumn,
     sortDirection: state.dataOps.sortDirection,
   });
@@ -1689,6 +1791,12 @@ function drawSingle2D(plotCfg, viewRows) {
     return;
   }
 
+  const totalPoints = traces.reduce((sum, trace) => sum + trace.x.length, 0);
+  const traceType = totalPoints >= SCATTER_GL_POINT_THRESHOLD ? "scattergl" : "scatter";
+  traces.forEach((trace) => {
+    trace.type = traceType;
+  });
+
   const xLabel = plotCfg.useIndexX ? "Row index" : state.headers[plotCfg.xColumn] || "X";
 
   window.Plotly.react(
@@ -1706,7 +1814,6 @@ function drawSingle2D(plotCfg, viewRows) {
     plotConfig()
   );
 
-  const totalPoints = traces.reduce((sum, trace) => sum + trace.x.length, 0);
   const items = traces
     .map(
       (trace, idx) =>
