@@ -155,7 +155,11 @@ export class VirtualTable {
 
   _renderBody({ force = false } = {}) {
     if (!this._tbody || this._viewRows.length === 0) {
-      if (this._tbody) this._tbody.innerHTML = "";
+      if (this._tbody && this._tbody.firstChild) {
+        const empty = document.createElement("tbody");
+        this._table.replaceChild(empty, this._tbody);
+        this._tbody = empty;
+      }
       this._rangeStart = 0;
       this._rangeEnd = 0;
       return;
@@ -216,7 +220,13 @@ export class VirtualTable {
       );
     }
 
-    this._tbody.innerHTML = parts.join("");
+    // Build into a detached tbody, then swap atomically to avoid
+    // the visible relayout (column widths collapsing/re-expanding)
+    // that occurs when innerHTML is set on a live tbody.
+    const next = document.createElement("tbody");
+    next.innerHTML = parts.join("");
+    this._table.replaceChild(next, this._tbody);
+    this._tbody = next;
 
     // Calibrate row height after first real render
     if (!this._calibrated) {
