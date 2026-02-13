@@ -289,6 +289,18 @@ body {
   z-index: 4;
 }
 
+tr[data-virtual-spacer] {
+  visibility: hidden;
+  line-height: 0;
+  font-size: 0;
+}
+
+tr[data-virtual-spacer] td {
+  padding: 0;
+  border: 0;
+  line-height: 0;
+}
+
 .header-cell {
   display: grid;
   gap: 3px;

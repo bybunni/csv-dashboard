@@ -14,11 +14,8 @@ import {
   computeQuickStats,
 } from "./lib/data-ops.js";
 import { parseYamlDocument, stringifyYamlDocument } from "./lib/preset-config.js";
+import { VirtualTable } from "./lib/virtual-table.js";
 
-const MAX_TABLE_ROWS = 2000;
-const MAX_TABLE_RENDER_CELLS = 120000;
-const MAX_CELL_TOOLTIP_CELLS = 40000;
-const MIN_TABLE_ROWS = 120;
 const FILTER_INPUT_DEBOUNCE_MS = 180;
 const PLOT_SUBFILTER_DEBOUNCE_MS = 140;
 const SCATTER_GL_POINT_THRESHOLD = 5000;
@@ -130,6 +127,8 @@ const els = {
   reset3dView: document.getElementById("reset3dView"),
   plotGrid3d: document.getElementById("plotGrid3d"),
 };
+
+const virtualTable = new VirtualTable(els.tableContainer, { escapeHtml });
 
 let renderDebounceTimer = null;
 let renderFrameToken = null;
@@ -631,6 +630,7 @@ async function loadCsvFile(file) {
     initializeDataOps();
     initializePlotSelections();
     refreshSelectors();
+    els.tableContainer.scrollTop = 0;
     renderViews();
 
     const numericCount = state.columns.filter((column) => column.type === "number").length;
@@ -1565,78 +1565,22 @@ function buildViewRows() {
   });
 }
 
-function computeTableRowLimit(visibleColumnCount) {
-  if (visibleColumnCount <= 0) {
-    return 0;
-  }
-  const budgetRows = Math.floor(MAX_TABLE_RENDER_CELLS / visibleColumnCount);
-  return clamp(budgetRows, MIN_TABLE_ROWS, MAX_TABLE_ROWS);
-}
-
 function renderTable(viewRows) {
   const visibleColumns = getVisibleColumns();
   if (state.headers.length === 0 || visibleColumns.length === 0) {
-    els.tableContainer.classList.add("empty");
-    els.tableContainer.innerHTML =
+    virtualTable.showEmpty(
       state.headers.length === 0
         ? '<div class="empty-message">Load a CSV to view rows and columns.</div>'
-        : '<div class="empty-message">No visible columns. Use Columns controls to show columns.</div>';
+        : '<div class="empty-message">No visible columns. Use Columns controls to show columns.</div>'
+    );
     els.tableMeta.textContent = "";
     return;
   }
 
-  els.tableContainer.classList.remove("empty");
-
-  const rowLimit = computeTableRowLimit(visibleColumns.length);
-  const shown = viewRows.slice(0, rowLimit);
-  const renderedCellCount = shown.length * visibleColumns.length;
-  const includeCellTooltips = renderedCellCount <= MAX_CELL_TOOLTIP_CELLS;
-  const headerCells = visibleColumns
-    .map((column) => {
-      const header = column.name;
-      const index = column.index;
-      const sortIndicator =
-        state.dataOps.sortColumn === index
-          ? state.dataOps.sortDirection === "desc"
-            ? "▼"
-            : state.dataOps.sortDirection === "asc"
-              ? "▲"
-              : ""
-          : "";
-
-      return `<th><div class="header-cell"><div class="header-main"><span class="header-name">${escapeHtml(
-        header
-      )}</span><span class="sort-indicator">${sortIndicator}</span></div><span class="header-type ${column.type}" title="${column.type}">${column.type}</span></div></th>`;
-    })
-    .join("");
-
-  const bodyRows = shown
-    .map((entry) => {
-      const cells = visibleColumns
-        .map((column) => {
-          const value = entry.values[column.index];
-          const safe = escapeHtml(value);
-          if (includeCellTooltips) {
-            return `<td title="${safe}">${safe}</td>`;
-          }
-          return `<td>${safe}</td>`;
-        })
-        .join("");
-      return `<tr><th class="row-index">${entry.sourceIndex.toLocaleString()}</th>${cells}</tr>`;
-    })
-    .join("");
-
-  els.tableContainer.innerHTML = `
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th class="row-index">Row</th>
-          ${headerCells}
-        </tr>
-      </thead>
-      <tbody>${bodyRows}</tbody>
-    </table>
-  `;
+  virtualTable.setData(viewRows, visibleColumns, {
+    column: state.dataOps.sortColumn,
+    direction: state.dataOps.sortDirection,
+  });
 
   const filterCount = Object.values(state.dataOps.filters).filter((value) => value.trim() !== "").length;
   const sortLabel =
@@ -1644,12 +1588,6 @@ function renderTable(viewRows) {
       ? ` · sorted by ${state.headers[state.dataOps.sortColumn]} (${state.dataOps.sortDirection})`
       : "";
 
-  const visibleSuffix =
-    viewRows.length > rowLimit
-      ? rowLimit < MAX_TABLE_ROWS
-        ? ` (showing first ${rowLimit.toLocaleString()} with adaptive row limit for ${visibleColumns.length.toLocaleString()} columns)`
-        : ` (showing first ${rowLimit.toLocaleString()})`
-      : "";
   const filterLabel = filterCount > 0 ? ` · ${filterCount} active filter${filterCount === 1 ? "" : "s"}` : "";
 
   const hiddenCount = state.headers.length - visibleColumns.length;
@@ -1658,7 +1596,7 @@ function renderTable(viewRows) {
       ? ` · ${visibleColumns.length.toLocaleString()} visible / ${state.headers.length.toLocaleString()} total columns`
       : ` · ${state.headers.length.toLocaleString()} columns`;
 
-  els.tableMeta.textContent = `${viewRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} rows${visibleLabel}${filterLabel}${sortLabel}${visibleSuffix}`;
+  els.tableMeta.textContent = `${viewRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} rows${visibleLabel}${filterLabel}${sortLabel}`;
 }
 
 function renderQuickStats(viewRows) {
